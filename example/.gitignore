@@ -1,0 +1,10 @@
+*.vwf
+*.2bpp
+*.o
+*.gb
+*.sym
+*.map
+charmap.asm
+*.sn*
+*.sav
+*.srm

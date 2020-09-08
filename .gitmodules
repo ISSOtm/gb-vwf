@@ -1,0 +1,3 @@
+[submodule "example/hardware.inc"]
+	path = example/hardware.inc
+	url = git@github.com:gbdev/hardware.inc.git
