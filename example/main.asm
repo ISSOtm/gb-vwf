@@ -2,6 +2,8 @@
 INCLUDE "hardware.inc/hardware.inc"
 INCLUDE "charmap.asm"
 
+	rev_Check_hardware_inc 3.0
+
 
 charmap "♥", $89
 
