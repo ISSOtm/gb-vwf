@@ -50,6 +50,11 @@ ENDM
 	text_flag SYNC
 
 
+IF !DEF(lb)
+	FAIL "Please define the `lb` macro."
+ENDC
+
+
 CHARACTER_HEIGHT equ 8
 CHARACTER_SIZE equ CHARACTER_HEIGHT + 1
 
