@@ -101,6 +101,9 @@ RefillerControlChars:
 	control_char WAITBTN_SCROLL,  ReaderWaitButtonScroll,        TextWaitButtonScroll
 	control_char ZWS,             _RefillCharBuffer.canNewline,  PrintNextCharInstant
 TEXT_BAD_CTRL_CHAR rb 0
+	IF DEF(EXPORT_CONTROL_CHARS)
+		EXPORT TEXT_BAD_CTRL_CHAR
+	ENDC
 
 	assert TEXT_NEWLINE == "\n"
 
