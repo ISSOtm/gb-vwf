@@ -1133,25 +1133,31 @@ TextSetColor:
 
 
 skip_key: MACRO
-	IF \1 == 1
-		rra
-		jr c, \2
-	ELIF \1 == 1 << 7
-		add a, a
-		jr c, \2
+	IF !DEF(\1)
+		FAIL "Please define \1"
 	ELSE
-		and \1
-		jr nz, \2
+		; Do not use ELIF to work around https://github.com/gbdev/rgbds/issues/764
+		IF \1 != 0
+			ldh a, [\2]
+			IF \1 == 1
+				rra
+				jr c, \3
+			ELIF \1 == 1 << 7
+				add a, a
+				jr c, \3
+			ELSE
+				and \1
+				jr nz, \3
+			ENDC
+		ENDC
 	ENDC
 ENDM
 TextWaitButton:
 	xor a ; FIXME: if other bits than 7 and 6 get used, this is gonna be problematic
 	ld [wTextFlags], a
 	; End this char if suitable user input is found
-	ldh a, [hHeldKeys]
-	skip_key SKIP_HELD_KEYS, PrintNextCharInstant
-	ldh a, [hPressedKeys]
-	skip_key SKIP_PRESSED_KEYS, PrintNextCharInstant
+	skip_key SKIP_HELD_KEYS, hHeldKeys, PrintNextCharInstant
+	skip_key SKIP_PRESSED_KEYS, hPressedKeys, PrintNextCharInstant
 	; If no button has been pressed, keep reading this char
 	; Ensure the engine reacts on the very next frame to avoid swallowing buttons
 	ld a, 1
