@@ -2,7 +2,7 @@
 
 A very powerful Variable-Width Font engine for the Game Boy & Game Boy Color.
 
-You can try running [the demo](https://github.com/ISSOtm/gb-vwf/releases/download/v1.0.0/vwf.gb) in your favorite Game Boy emulator.
+You can try running [the demo](https://github.com/ISSOtm/gb-vwf/releases/download/v1.0.0/vwf.gb) in your favorite Game Boy emulator, or [watch this recording](https://raw.githubusercontent.com/wiki/ISSOtm/gb-vwf/demo.webm) of it.
 
 For detailed instructions, including installation and usage, please check [the wiki](https://github.com/ISSOtm/gb-vwf/wiki) out.
 
