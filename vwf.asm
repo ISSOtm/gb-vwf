@@ -28,22 +28,22 @@
 ; Having more will cause a soft crash
 ; This must not exceeed $7F, as the return logic discards bit 7 when checking for zero
 IF !DEF(TEXT_STACK_CAPACITY)
-TEXT_STACK_CAPACITY equ 8
+	def TEXT_STACK_CAPACITY equ 8
 ENDC
 
 ; IMPORTANT NOTE REGARDING NEWLINES!!!
 ; DO NOT PRINT MORE THAN THIS NEWLINES AT ONCE
 ; THIS **WILL** CAUSE A BUFFER OVERFLOW
 IF !DEF(TEXT_NEWLINE_CAPACITY)
-TEXT_NEWLINE_CAPACITY equ 10
+	def TEXT_NEWLINE_CAPACITY equ 10
 ENDC
 
 
 ; `wTextFlags` bits
 rsset 6
-text_flag: MACRO
-TEXTB_\1 rb 1
-TEXTF_\1 equ 1 << TEXTB_\1
+MACRO text_flag
+	def TEXTB_\1 rb 1
+	def TEXTF_\1 equ 1 << TEXTB_\1
 	EXPORT TEXTB_\1, TEXTF_\1
 ENDM
 	text_flag WAITBUTTON
@@ -55,30 +55,30 @@ IF !DEF(lb)
 ENDC
 
 
-CHARACTER_HEIGHT equ 8
-CHARACTER_SIZE equ CHARACTER_HEIGHT + 1
+def CHARACTER_HEIGHT equ 8
+def CHARACTER_SIZE equ CHARACTER_HEIGHT + 1
 
 
 
 SECTION "VWF engine", ROM0
 
 
-CTRL_CHAR_PTRS equs ""
+def CTRL_CHAR_PTRS equs ""
 	rsreset
-control_char: MACRO
+MACRO control_char
 	IF DEF(PRINT_CHARMAP)
 		PRINTT "charmap \"<\1>\", {d:_RS}\n"
 	ENDC
-TEXT_\1 rb 1
+	def TEXT_\1 rb 1
 	IF DEF(EXPORT_CONTROL_CHARS)
 		EXPORT TEXT_\1
 	ENDC
 
 	IF _NARG > 1
 		dw \2
-TMP equs "{CTRL_CHAR_PTRS}\ndw \3"
+		def TMP equs "{CTRL_CHAR_PTRS}\ndw \3"
 		PURGE CTRL_CHAR_PTRS
-CTRL_CHAR_PTRS equs "{TMP}"
+		def CTRL_CHAR_PTRS equs "{TMP}"
 		PURGE TMP
 	ENDC
 ENDM
@@ -100,28 +100,28 @@ RefillerControlChars:
 	control_char SCROLL,          ReaderScroll,                  TextScroll
 	control_char WAITBTN_SCROLL,  ReaderWaitButtonScroll,        TextWaitButtonScroll
 	control_char ZWS,             _RefillCharBuffer.canNewline,  PrintNextCharInstant
-TEXT_BAD_CTRL_CHAR rb 0
+	def TEXT_BAD_CTRL_CHAR rb 0
 	IF DEF(EXPORT_CONTROL_CHARS)
 		EXPORT TEXT_BAD_CTRL_CHAR
 	ENDC
 
 	assert TEXT_NEWLINE == "\n"
 
-PTRS equs ""
+def PTRS equs ""
 	rsset 256
-reader_only_control_char: MACRO
-_RS = _RS - 1
+MACRO reader_only_control_char
+	def _RS = _RS - 1
 	IF DEF(PRINT_CHARMAP)
 		PRINTT "charmap \"<\1>\", {d:_RS}\n"
 	ENDC
-TEXT_\1 equ _RS
+	def TEXT_\1 equ _RS
 	IF DEF(EXPORT_CONTROL_CHARS)
 		EXPORT TEXT_\1
 	ENDC
 
-TMP equs "dw \2\n{PTRS}"
+	def TMP equs "dw \2\n{PTRS}"
 	PURGE PTRS
-PTRS equs "{TMP}"
+	def PTRS equs "{TMP}"
 	PURGE TMP
 ENDM
 
@@ -134,9 +134,9 @@ ENDM
 	; Unusual, I know, but it works better!
 	PTRS
 RefillerOnlyControlChars:
-FIRST_READER_ONLY_CONTROL_CHAR rb 0
+	def FIRST_READER_ONLY_CONTROL_CHAR rb 0
 
-NB_FONT_CHARACTERS equ FIRST_READER_ONLY_CONTROL_CHAR - " "
+	def NB_FONT_CHARACTERS equ FIRST_READER_ONLY_CONTROL_CHAR - " "
 
 
 
@@ -272,8 +272,8 @@ DrawVWFChars::
 
 
 
-TEXT_CONT_STR equ 0
-TEXT_NEW_STR  equ 1
+	def TEXT_CONT_STR equ 0
+	def TEXT_NEW_STR  equ 1
 	EXPORT TEXT_CONT_STR
 	EXPORT TEXT_NEW_STR
 ; Sets up the VWF engine to start printing text
@@ -1140,7 +1140,7 @@ TextSetColor:
 	jr PrintNextCharInstant
 
 
-skip_key: MACRO
+MACRO skip_key
 	IF !DEF(\1)
 		FAIL "Please define \1"
 	ELSE
@@ -1337,11 +1337,11 @@ ENDC
 CharsetPtrs::
 	rsreset
 	REPT NB_CHARSETS
-CHARSET equs "CHARSET_{d:_RS}"
-CHARSET_DEFINED equs "DEF({CHARSET})"
+		def CHARSET equs "CHARSET_{d:_RS}"
+		def CHARSET_DEFINED equs "DEF({CHARSET})"
 
 		IF CHARSET_DEFINED
-CHARSET_LABEL equs "Charset{d:_RS}"
+			def CHARSET_LABEL equs "Charset{d:_RS}"
 			dw CHARSET_LABEL
 			PUSHS
 SECTION "Charset {d:_RS}", ROM0
