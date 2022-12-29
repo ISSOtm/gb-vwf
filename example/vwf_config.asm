@@ -2,7 +2,7 @@ INCLUDE "hardware.inc/hardware.inc"
 
 
 ; The example code uses `lb`. Only it, though, so it's defined here.
-lb: macro
+macro lb
 	assert (\2) < 256
 	assert (\3) < 256
 	ld \1, (\2) << 8 | (\3)

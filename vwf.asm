@@ -67,7 +67,7 @@ def CTRL_CHAR_PTRS equs ""
 	rsreset
 MACRO control_char
 	IF DEF(PRINT_CHARMAP)
-		PRINTT "charmap \"<\1>\", {d:_RS}\n"
+		PRINT "charmap \"<\1>\", {d:_RS}\n"
 	ENDC
 	def TEXT_\1 rb 1
 	IF DEF(EXPORT_CONTROL_CHARS)
@@ -112,7 +112,7 @@ def PTRS equs ""
 MACRO reader_only_control_char
 	def _RS = _RS - 1
 	IF DEF(PRINT_CHARMAP)
-		PRINTT "charmap \"<\1>\", {d:_RS}\n"
+		PRINT "charmap \"<\1>\", {d:_RS}\n"
 	ENDC
 	def TEXT_\1 equ _RS
 	IF DEF(EXPORT_CONTROL_CHARS)
