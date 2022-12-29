@@ -2,7 +2,7 @@
 INCLUDE "hardware.inc/hardware.inc"
 INCLUDE "charmap.asm"
 
-	rev_Check_hardware_inc 3.0
+	rev_Check_hardware_inc 4.8
 
 
 charmap "♥", $89
@@ -14,7 +14,7 @@ TEXT_HEIGHT_TILES equ 8
 	EXPORT TEXT_HEIGHT_TILES
 BTN_ANIM_PERIOD equ 16
 
-lb: macro
+macro lb
 	ld \1, (\2) << 8 | (\3)
 endm
 
