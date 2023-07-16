@@ -2,7 +2,7 @@
 INCLUDE "hardware.inc/hardware.inc"
 INCLUDE "charmap.asm"
 
-	rev_Check_hardware_inc 3.0
+	rev_Check_hardware_inc 4.0
 
 
 charmap "♥", $89
@@ -14,7 +14,7 @@ TEXT_HEIGHT_TILES equ 8
 	EXPORT TEXT_HEIGHT_TILES
 BTN_ANIM_PERIOD equ 16
 
-lb: macro
+macro lb
 	ld \1, (\2) << 8 | (\3)
 endm
 
@@ -152,12 +152,12 @@ EntryPoint:
 
 	; You need to write these on game startup
 	xor a ; ld a, 0
-	ld [wTextCurPixel], a
+	ld [wCurPixel], a
 	; xor a ; ld a, 0
-	ld [wTextCharset], a
+	ld [wCharsetID], a
 	; xor a ; ld a, 0
 	ld c, $10 * 2
-	ld hl, wTextTileBuffer
+	ld hl, wTileBuffer
 	rst MemsetSmall
 
 
@@ -215,76 +215,76 @@ PerformAnimation:
 	;;;;;;;;;;;;;;;; TEXT ENGINE LOCAL INIT ;;;;;;;;;;;;;;;;;;;;;
 	; You should write these when appropriate
 	ld a, 18 * 8 + 1 ; The last pixel of all chars is blank!
-	ld [wTextLineLength], a
+	ld [wLineLength], a
 	ld a, LOW(vStaticTextTiles / 16)
-	ld [wTextCurTile], a
+	ld [wCurTile], a
 	; The following text doesn't wrap, so no need to init this
 	; ld [wWrapTileID], a
 	ld a, LOW(vStaticTextTiles.end / 16) - 1
 	ld [wLastTextTile], a
 	ld a, 2
-	ld [wTextNbLines], a
-	ld [wTextRemainingLines], a
-	ld [wNewlinesUntilFull], a
+	ld [wNbLines], a
+	ld [wRemainingLines], a
+	ld [wNbFreshLines], a
 	xor a ; ld a, 0
-	ld [wTextStackSize], a
+	ld [wStackSize], a
 	; xor a ; ld a, 0
-	ld [wTextFlags], a
+	ld [wFlags], a
 	; xor a ; ld a, 0
-	ld [wTextLetterDelay], a
+	ld [wLetterDelay], a
 	ld a, $80
-	ld [wTextTileBlock], a
+	ld [wTileBlock], a
 
 	ld a, TEXT_NEW_STR
 	ld hl, StaticText
 	ld b, BANK(StaticText)
-	call PrintVWFText
+	call SetupVWFEngine
 	ld hl, vStaticText
-	call SetPenPosition
-	; Since wTextLetterDelay is 0, this will process all of the string at once
-	call PrintVWFChar
-	call DrawVWFChars
+	call SetPrinterPosition
+	; Since wLetterDelay is 0, this will process all of the string at once
+	call TickVWFEngine
+	call PrintVWFChars
 
 
 	;;;;;;;;;;;;;;; This is "local" initialization for printing the "main" text ;;;;;;;;;;;;;;;;;
 	ld a, TEXT_WIDTH_TILES * 8 + 1
-	ld [wTextLineLength], a
+	ld [wLineLength], a
 	ld a, LOW(vTextTiles / 16)
-	ld [wTextCurTile], a
+	ld [wCurTile], a
 	ld [wWrapTileID], a
 	ld a, LOW(vTextTiles.end / 16) - 1
 	ld [wLastTextTile], a
 	ld a, 8
-	ld [wTextNbLines], a
-	ld [wTextRemainingLines], a
-	ld [wNewlinesUntilFull], a
+	ld [wNbLines], a
+	ld [wRemainingLines], a
+	ld [wNbFreshLines], a
 	ld a, 2
-	ld [wTextLetterDelay], a
+	ld [wLetterDelay], a
 	ld a, $90
-	ld [wTextTileBlock], a
+	ld [wTileBlock], a
 
 .restartText
 	ld a, TEXT_NEW_STR
 	ld hl, Text
 	ld b, BANK(Text)
-	call PrintVWFText
+	call SetupVWFEngine
 	ld hl, vText
-	call SetPenPosition
+	call SetPrinterPosition
 
 .loop
 	rst WaitVBlank
 
-	call PrintVWFChar
-	call DrawVWFChars
+	call TickVWFEngine
+	call PrintVWFChars
 
-	ld hl, wTextFlags
+	ld hl, wFlags
 	bit 7, [hl]
 	jr z, .noSpeedToggling
 	res 7, [hl]
 	; Toggle the text speed
-	ld a, [wTextLetterDelay]
+	ld a, [wLetterDelay]
 	xor 8
-	ld [wTextLetterDelay], a
+	ld [wLetterDelay], a
 .noSpeedToggling
 
 	; Draw a button animation if waiting for button input
@@ -316,7 +316,7 @@ PerformAnimation:
 .noBtnAnim
 
 
-	ld a, [wTextSrcPtr + 1]
+	ld a, [wSrcPtr + 1]
 	inc a ; cp $FF
 	jr nz, .loop
 
