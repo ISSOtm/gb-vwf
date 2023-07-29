@@ -3,7 +3,7 @@
 ;
 ; MIT License
 ;
-; Copyright (c) 2018-2021 Eldred Habert
+; Copyright (c) 2018-2023 Eldred Habert
 ;
 ; Permission is hereby granted, free of charge, to any person obtaining a copy
 ; of this software and associated documentation files (the "Software"), to deal
@@ -23,1474 +23,1339 @@
 ; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ; SOFTWARE.
 
+PUSHO
+; Control characters, as well as some normal characters, are special to the engine. Can't leave them undefined!
+OPT Werror=unmapped-char
 
-; Number of elements the text stack has room for
-; Having more will cause a soft crash
-; This must not exceeed $7F, as the return logic discards bit 7 when checking for zero
-IF !DEF(TEXT_STACK_CAPACITY)
-	def TEXT_STACK_CAPACITY equ 8
+
+
+;;; Include the user-provided configuration file.
+
+IF !DEF(VWF_CFG_FILE)
+	FAIL "Before including `vwf.asm`, please create a config file, and define `VWF_CFG_FILE` to contain a path to it."
 ENDC
 
-; IMPORTANT NOTE REGARDING NEWLINES!!!
-; DO NOT PRINT MORE THAN THIS NEWLINES AT ONCE
-; THIS **WILL** CAUSE A BUFFER OVERFLOW
-IF !DEF(TEXT_NEWLINE_CAPACITY)
-	def TEXT_NEWLINE_CAPACITY equ 10
-ENDC
+; Macros used by the config file.
 
-
-; `wTextFlags` bits
-rsset 6
-MACRO text_flag
-	def TEXTB_\1 rb 1
-	def TEXTF_\1 equ 1 << TEXTB_\1
-	EXPORT TEXTB_\1, TEXTF_\1
+def charmap_idx = 0
+MACRO chars
+	REPT _NARG
+		IF STRLEN(\1) != 0
+			vwf_charmap \1, charmap_idx
+		ENDC
+		def charmap_idx += 1
+		shift
+	ENDR
 ENDM
-	text_flag WAITBUTTON
-	text_flag SYNC
 
+def font_id = 0
+def font_ptrs equs ""
+def font_data equs ""
+MACRO font
+	def \1 equ font_id
+	EXPORT \1
+	def font_id += 1
+	redef font_ptrs equs "{font_ptrs}\ndw Font\1Ptr"
+	redef font_data equs "{font_data}\nFont\1Ptr:INCBIN \2"
+	; TODO: when RGBASM adds multi-byte charmap support, provide short-hand charmaps that emit the control code and the index
+ENDM
+
+; Macros required by the above.
+
+MACRO vwf_charmap
+	IF _NARG > 1
+		def TMP equ (\2)
+	ELSE
+		def TMP equ \1
+	ENDC
+	charmap \1, TMP
+
+	IF DEF(PRINT_DEBUGFILE)
+	ELIF DEF(PRINT_CHARMAP)
+		IF !DEF(BEGUN_CHARMAP)
+			def BEGUN_CHARMAP equ 1
+			PRINTLN "newcharmap vwf"
+		ENDC
+		PRINTLN "charmap \1,{TMP}"
+	ELIF DEF(PRINT_TBL)
+		IF !DEF(BEGUN_CHARMAP)
+			def BEGUN_CHARMAP equ 1
+			PRINTLN "@VWF"
+		ENDC
+		def name equs ""
+		IF _NARG > 1
+			redef name equs "\2"
+		ENDC
+		IF !STRCMP("{name}", "VWF_END") || !STRCMP("{name}", "VWF_JUMP")
+			PRINTLN "/{X:TMP}=[{name}]"
+		ELIF !STRCMP("{name}", "VWF_NEWLINE")
+			PRINTLN "{X:TMP}=\\n"
+		ELIF !STRCMP(STRSUB("{name}", 1, 4), "VWF_")
+			shift 2
+			PRINTLN "${X:TMP}=[{name}],\#"
+		ELSE
+			PRINTLN "{X:TMP}=", \1
+		ENDC
+		PURGE name
+	ENDC
+
+	purge TMP
+ENDM
+
+def NB_VWF_CTRL_CHARS equ 0
+EXPORT NB_VWF_CTRL_CHARS
+def ctrl_char_ptrs equs ""
+def ctrl_char_lens equs ""
+; A bang before the handler pointer means that the control char terminates lines.
+; Args should specify .tbl file control code parameters; it is expected that 1 param = 1 operand byte.
+; (See https://transcorp.romhacking.net/scratchpad/Table%20File%20Format.txt, section 2.5.1 for syntax.)
+; Note that the contents of the <arg>s is only for the .tbl file, but their number is crucial to the lookahead!
+MACRO control_char ; <name>, [!]<handler ptr> [, <arg>... ]
+	IF _NARG < 2
+		FAIL "`control_char` expects at least 2 arguments, not {d:_NARG}"
+	ENDC
+
+	redef NB_VWF_CTRL_CHARS equ NB_VWF_CTRL_CHARS + 1
+	def char_name equs "\2"
+	def nb_operand_bytes equ (_NARG - 2) << 1
+	IF !STRCMP(STRSUB("{char_name}", 1, 1), "!")
+		redef char_name equs STRSUB("{char_name}", 2)
+		redef nb_operand_bytes equ nb_operand_bytes | 1
+	ENDC
+
+	redef ctrl_char_ptrs equs "dw {char_name}\n{ctrl_char_ptrs}"
+	IF NB_VWF_CTRL_CHARS > NB_SPECIAL_CTRL_CHARS
+		redef ctrl_char_lens equs "db {nb_operand_bytes}\n{ctrl_char_lens}"
+	ENDC
+
+	def charmap_def equs "\"<\1>\", VWF_\1"
+	def VWF_\1 equ 256 - NB_VWF_CTRL_CHARS
+	EXPORT VWF_\1
+	shift 2
+	vwf_charmap {charmap_def}, \#
+	PURGE char_name, nb_operand_bytes, charmap_def
+ENDM
+
+; Define the built-in control chars first, as their numeric values are important to the engine.
+
+	def NB_SPECIAL_CTRL_CHARS equ 6 ; All of the special chars must be contiguous!
+	control_char END,           TextReturn
+	control_char CALL,          TextCall
+	control_char JUMP,          TextJumpTo
+	control_char SET_FONT,      SetFont
+	control_char SET_VARIANT,   SetVariant
+	control_char ZWS,           SoftHyphen ; "Zero-Width Space"
+	control_char NEWLINE,       !Newline
+	control_char SET_COLOR,     SetColor,        color=%D
+	control_char DELAY,         DelayNextChar,   nb_frames=%D
+	control_char SYNC,          ExternalSync
+	control_char WAIT,          Wait
+	control_char SCROLL,        Scroll
+	control_char WAIT_SCROLL,   WaitAndScroll
+
+; Process the config file.
+
+INCLUDE "{VWF_CFG_FILE}"
+
+IF DEF(PRINT_TBL)
+	PURGE PRINT_TBL ; Don't print this one in the .tbl file, as it's a duplicate.
+ENDC
+; People will likely want to write "\n" rather than "<NEWLINE>". Or want to use multi-line strings.
+; This is done after processing the config file, to ensure we override whatever the user set.
+	vwf_charmap "\n", VWF_NEWLINE
+
+
+
+;;; Process all config elements that aren't part of the above macros.
+
+
+; Number of elements the text stack has room for.
+; This must not exceeed $7F, as the return logic discards bit 7 when checking for zero.
+IF !DEF(STACK_CAPACITY)
+	def STACK_CAPACITY equ 8
+ENDC
+
+; Do **NOT** print more than this amount of newlines in a single call to `PrintVWFChars`!
+; This would overflow an internal buffer.
+; If you want to be safe, set this to the maximum textbox height you will be using.
+IF !DEF(NEWLINE_CAPACITY)
+	def NEWLINE_CAPACITY equ 10
+ENDC
+
+; This adjusts how many bits (starting from the LSB) of the font ID are treated as the "variant".
+; 2 bits is enough for Regular, Bold, Italic, Bold+Italic; this should cover most use cases.
+IF !DEF(NB_VARIANT_BITS)
+	def NB_VARIANT_BITS equ 2
+ENDC
+
+
+
+;;; Now, some things that the rest of the engine uses.
 
 IF !DEF(lb)
-	FAIL "Please define the `lb` macro."
+	FAIL "Please define the `lb` macro in \"{VWF_CFG_FILE}\"."
+ENDC
+
+IF !DEF(get_cur_rom_bank_id)
+	FAIL "Please define the `get_bank_id` macro in \"{VWF_CFG_FILE}\"."
+ENDC
+
+IF !DEF(switch_rom_bank)
+	FAIL "Please define the `switch_rom_bank` macro in \"{VWF_CFG_FILE}\"."
+ENDC
+
+IF !DEF(VWF_EMPTY_TILE_ID)
+	FAIL "Please define the `VWF_EMPTY_TILE_ID` symbol in \"{VWF_CFG_FILE}\"."
+ENDC
+
+IF !DEF(wait_vram)
+	; This one is provided by default, because it should be good enough for most everyone.
+	; And the requirements for a replacement are fairly complex, so I don't want to overwhelm less savvy users.
+	MACRO wait_vram
+	.waitVRAM\@
+		ldh a, [rSTAT]
+		and STATF_BUSY
+		jr nz, .waitVRAM\@
+	ENDM
+ENDC
+
+; Definitions for the various bits in `wFlags`.
+; FIXME: it would be neater to define these next to `wFlags`, but RGBDS 0.6.1 requires the first
+; operand to `bit`, `set`, and `res` to be constant...
+MACRO flag
+	def TEXTB_\2 equ (\1)
+	def TEXTF_\2 equ 1 << TEXTB_\2
+	EXPORT TEXTB_\2, TEXTF_\2
+ENDM
+	flag 7, WAITING ; If set, the engine will not process ticks.
+	flag 6, SYNC ; Set by the "<SYNC>" control char, otherwise ignored.
+	flag 2, SCROLL ; Internal. If this is set, the textbox will be scrolled upwards (unless WAITING is set).
+	flag 1, NEWLINE ; Internal. If set, the next character flush will move to the next line.
+	flag 0, COLOR ; If set, color #1 will be emitted instead of #3. Changed by "<COLOR>".
+
+
+;; Debugfile-related macros.
+
+IF DEF(PRINT_DEBUGFILE)
+	PRINTLN "@debugfile 1.0.0"
+	MACRO dbg_var ; <name>, <default value>
+		def DEFAULT_VALUE equs "0"
+		IF _NARG > 1
+			redef DEFAULT_VALUE equs "\2"
+		ENDC
+		PRINTLN "@var \1 {DEFAULT_VALUE}"
+		purge DEFAULT_VALUE
+	ENDM
+	MACRO dbg_action ; <function>, <action:str> [, <condition:dbg_expr>]
+		def OFS_FROM_BASE equ @ - \1
+		def ACTION_COND equs ""
+		IF _NARG > 2
+			redef ACTION_COND equs "\3"
+		ENDC
+		PRINTLN "\1+{d:OFS_FROM_BASE} x {ACTION_COND}: ", \2
+		purge OFS_FROM_BASE, ACTION_COND
+	ENDM
+	MACRO runtime_assert ; <function>, <condition:dbg_expr> [, <message:dbg_str>]
+		def MSG equs "assert failure"
+		IF _NARG > 2
+			redef MSG equs \3
+		ENDC
+		dbg_action \1, "alert \"{MSG}\"", !(\2)
+		purge MSG
+	ENDM
+	MACRO unreachable ; <function> [, <message:dbg_str>]
+		def MSG equs "unreachable code reached!"
+		IF _NARG > 1
+			redef MSG equs \2
+		ENDC
+		dbg_action \1, "alert \"In \1: {MSG}\""
+		purge MSG
+	ENDM
+ELSE
+	def dbg_var equs ";"
+	def dbg_action equs ";"
+	def runtime_assert equs ";"
+	def unreachable equs ";"
 ENDC
 
 
-def CHARACTER_HEIGHT equ 8
-def CHARACTER_SIZE equ CHARACTER_HEIGHT + 1
+
+;;; Now, the engine itself.
+; First lie the “setup” function, then the two “stepping” functions.
+; Note that the latter are surrounded by a lot of auxiliary functions due to `jr` range concerns.
 
 
 
-SECTION "VWF engine", ROM0
+	; Holds the value of SP when entering `TickVWFEngine`, used to check the stack is balanced on exit.
+	dbg_var _vwfEntrySp
 
 
-def CTRL_CHAR_PTRS equs ""
-	rsreset
-MACRO control_char
-	IF DEF(PRINT_CHARMAP)
-		PRINTT "charmap \"<\1>\", {d:_RS}\n"
-	ENDC
-	def TEXT_\1 rb 1
-	IF DEF(EXPORT_CONTROL_CHARS)
-		EXPORT TEXT_\1
-	ENDC
+; @param hl: Pointer to the string to be displayed
+; @param b:  Bank containing the string
+; @param a:  Whether to flush the current string (either of the constants below).
+;            Use `VWF_CONT_STR` if you want to keep printing to the same string you previously were.
+;            Note that `VWF_NEW_STR` causes the auto-linewrapper to assume a new line is being started.
+	def VWF_CONT_STR equ 0
+	def VWF_NEW_STR  equ 1
+	EXPORT VWF_CONT_STR, VWF_NEW_STR
+; @return a: 1
+SetupVWFEngine::
+	and a ; Setting Z for the jump further below.
 
-	IF _NARG > 1
-		dw \2
-		def TMP equs "{CTRL_CHAR_PTRS}\ndw \3"
-		PURGE CTRL_CHAR_PTRS
-		def CTRL_CHAR_PTRS equs "{TMP}"
-		PURGE TMP
-	ENDC
-ENDM
-
-	;;;;;;;;;;;;;;;;;;;;; "Regular" control chars ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	control_char END
-RefillerControlChars:
-	control_char SET_FONT,        ReaderSetFont,                 TextSetFont
-	control_char RESTORE_FONT,    ReaderRestoreFont,             TextRestoreFont
-	control_char SET_VARIANT,     ReaderSetVariant,              TextSetVariant
-	control_char RESTORE_VARIAN,  ReaderRestoreVariant,          TextRestoreVariant
-	control_char SET_COLOR,       Reader2ByteNop,                TextSetColor
-	control_char BLANKS,          ReaderPrintBlank,              TextPrintBlank
-	control_char DELAY,           Reader2ByteNop,                TextDelay
-	control_char WAITBTN,         ReaderWaitButton,              TextWaitButton
-	control_char CLEAR,           ReaderClear,                   TextClear
-	control_char NEWLINE,         ReaderNewline,                 TextNewline
-	control_char SYNC,            Reader1ByteNop,                TextSync
-	control_char SCROLL,          ReaderScroll,                  TextScroll
-	control_char WAITBTN_SCROLL,  ReaderWaitButtonScroll,        TextWaitButtonScroll
-	control_char ZWS,             _RefillCharBuffer.canNewline,  PrintNextCharInstant
-	def TEXT_BAD_CTRL_CHAR rb 0
-	IF DEF(EXPORT_CONTROL_CHARS)
-		EXPORT TEXT_BAD_CTRL_CHAR
-	ENDC
-
-	assert TEXT_NEWLINE == "\n"
-
-def PTRS equs ""
-	rsset 256
-MACRO reader_only_control_char
-	def _RS = _RS - 1
-	IF DEF(PRINT_CHARMAP)
-		PRINTT "charmap \"<\1>\", {d:_RS}\n"
-	ENDC
-	def TEXT_\1 equ _RS
-	IF DEF(EXPORT_CONTROL_CHARS)
-		EXPORT TEXT_\1
-	ENDC
-
-	def TMP equs "dw \2\n{PTRS}"
-	PURGE PTRS
-	def PTRS equs "{TMP}"
-	PURGE TMP
-ENDM
-
-	;;;;;;;;;;;;;;;;;;;; Reader-only control chars ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	reader_only_control_char CALL,         ReaderCall
-	reader_only_control_char JUMP,         ReaderJumpTo
-	reader_only_control_char SOFT_HYPHEN,  ReaderSoftHyphen
-
-	; The base of the table is located at its end
-	; Unusual, I know, but it works better!
-	PTRS
-RefillerOnlyControlChars:
-	def FIRST_READER_ONLY_CONTROL_CHAR rb 0
-
-	def NB_FONT_CHARACTERS equ FIRST_READER_ONLY_CONTROL_CHAR - " "
-
-
-
-; Sets the pen's position somewhere in memory
-; The code is designed for a pen in VRAM, but it can be anywhere
-; Please call this after PrintVWFText, so wTextCurTile is properly updated
-; @param hl The address to print to (usually in the tilemap)
-SetPenPosition::
-; Note: relied upon preserving HL
-	ld a, l
-	ld [wPenPosition], a
-	ld [wPenStartingPosition], a
-	ld a, h
-	ld [wPenPosition + 1], a
-	ld [wPenStartingPosition + 1], a
-
-	ld a, [wTextCurTile]
-	ld [wPenCurTile], a
-	ret
-
-DrawVWFChars::
-	ld hl, wPenPosition
-	ld a, [hli]
-	ld e, a
-	ld a, [hli]
-	ld d, a
-	assert wPenPosition + 2 == wPenCurTile
-	ld c, [hl]
-
-	ld hl, wNewlineTiles
-	ld a, [wFlushedTiles]
-	and a
-	jr z, .noNewTiles
-	ld b, a
-	xor a
-	ld [wFlushedTiles], a
-.writeNewTile
-	; Check if current tile is subject to a newline
-	ld a, [wNbNewlines]
-	and a
-	jr z, .writeTile
-	ld a, c
-	cp [hl]
-	jr z, .newline
-.writeTile
-	ldh a, [rSTAT]
-	and STATF_BUSY
-	jr nz, .writeTile
-	ld a, c
-	ld [de], a
-	ld a, [wLastTextTile]
-	scf
-	sbc c
-	jr nc, .nowrap
-	ld a, [wWrapTileID]
-	ld c, a
-	db $FE ; cp imm8
-.nowrap
-	inc c
-	inc de
-	dec b
-	jr nz, .writeNewTile
-.noNewTiles
-
-.tryAgain
-	ld a, [wNbNewlines]
-	and a
-	jr z, .noFinalNewline
-	ld a, c
-	cp [hl]
-	jr z, .finalNewline
-.noFinalNewline
-	xor a
-	ld [wNbNewlines], a
-
-	ld hl, wPenCurTile
-	ld a, c
-	ld [hld], a
-	assert wPenCurTile - 1 == wPenPosition + 1
-	ld a, d
-	ld [hld], a
-	ld [hl], e
-
-	; If the current tile is empty (1 px == 1 space)
-	ld a, [wTextCurPixel]
-	cp 2
-	ret c
-.waitFinalTile
-	ldh a, [rSTAT]
-	and STATF_BUSY
-	jr nz, .waitFinalTile
-	ld a, c
-	ld [de], a
-	ret
-
-.newline
-	ld a, [wNbNewlines]
-	dec a
-	ld [wNbNewlines], a
-	ld a, [wPenStartingPosition]
-	and SCRN_VX_B - 1
-	ld c, a ; Get offset from column 0
-	ld a, e
-	and -SCRN_VX_B ; Get to column 0
-	add a, c ; Get to starting column
-	add a, SCRN_VX_B ; Go to next row (this might overflow)
-	ld e, a
-	jr nc, .nocarry
-	inc d
-.nocarry
-	ld c, [hl] ; Get back tile ID
-	xor a ; Clear this newline tile
-	ld [hli], a ; Go to the next newline (if any)
-	jr .writeNewTile
-
-.finalNewline
-	ld a, [wNbNewlines]
-	dec a
-	ld [wNbNewlines], a
-	xor a
-	ld [hli], a ; Clear that
-	ld a, [wPenStartingPosition]
-	and SCRN_VX_B - 1
-	ld b, a
-	ld a, e
-	and -SCRN_VX_B
-	add a, b
-	add a, SCRN_VX_B
-	ld e, a
-	jr nc, .tryAgain ; noCarry
-	inc d
-	jr .tryAgain
-
-
-
-	def TEXT_CONT_STR equ 0
-	def TEXT_NEW_STR  equ 1
-	EXPORT TEXT_CONT_STR
-	EXPORT TEXT_NEW_STR
-; Sets up the VWF engine to start printing text
-; WARNING: If flushing the string, the auto-wordwrapper assumes that a new line is started
-;          (You might get odd gfx otherwise if the text ended close enough to the tile border)
-;          If needed, manually modify `wLineRemainingPixels` after calling this
-; WARNING: If you want to print to a specific tile ID, set wTextCurTile *after* calling this
-;          (Obviously, don't do this if you're not flushing the string)
-; WARNING: Variant is reset when calling this, but the language is preserved
-; WARNING: Source data located between $FF00 and $FFFF will probably cause some malfunctioning
-; NOTICE: Source data outside of ROM banks is fine, but banking won't be performed.
-;         Any ROM bank number is thus fine, but avoid 0 or values too high as this triggers spurious warnings in BGB
-; @param hl Pointer to the string to be displayed
-; @param b  Bank containing the string
-; @param a  Non-zero to flush the current string (use zero if you want to keep printing the same string)
-; @return a 0
-; @return hl wTextCharset
-; @return f NC and Z
-; @destroy bc de
-PrintVWFText::
-	and a ; Set Z flag for test below
-
-	; Write src ptr
 	ld a, b
-	ld [wTextSrcBank], a
-	ld a, l
-	ld [wTextSrcPtr], a
+	ld [wSourceBank], a
 	ld a, h
-	ld [wTextSrcPtr + 1], a
-
-	; Flag preserved from `and a`
-	jr z, .dontFlush
-	; Reset auto line-wrapper (assuming we're starting a new line)
-	ld a, [wTextLineLength]
-	ld [wLineRemainingPixels], a
-	; Don't flush if current tile is empty
-	ld a, [wTextCurPixel]
-	cp 2 ; Again, last pixel of all tiles is empty
-	call nc, FlushVWFBuffer
-	; Reset position always, though
-	xor a
-	ld [wTextCurPixel], a
-	ld [wNbNewlines], a
-.dontFlush
-
-	; Force buffer refill by making these two identical
-	; wTextReadPtrLow needs to be this to refill the full buffer
-	ld a, LOW(wTextCharBufferEnd)
-	ld [wTextFillPtrEnd], a
-	ld [wTextReadPtrEnd], a
-	ld [wTextReadPtrLow], a
-
-	; Use black color by default (which is normally loaded into color #3)
-	ld a, 3
-	ld [wTextColorID], a
-
-	; Preserve the language but reset the decoration
-	ld hl, wTextCharset
-	ld a, [hl]
-	and $F0
-	ld [hl], a
-
-	; Set initial letter delay to 0, to start printing directly
-	xor a
-	ld [wTextNextLetterDelay], a
-	ret
-
-FlushVWFBuffer::
-	push hl
-
-	; Calculate ptr to next tile
-	ld a, [wTextTileBlock]
-	ld h, a
-	ld a, [wTextCurTile]
-	swap a ; Multiply by 16
-	ld d, a
-	and $F0
-	ld e, a
-	xor d
-	add a, h
-	ld d, a
-
-	; Copy buffer 1 to VRAM, buffer 2 to buffer 1, and clear buffer 2
-	ld hl, wTextTileBuffer
-	ld bc, wTextTileBuffer + $10
-.copyByte
-	ldh a, [rSTAT]
-	and STATF_BUSY
-	jr nz, .copyByte
-	; Write tile buf to VRAM
-	ld a, [hl]
-	ld [de], a
-	inc e ; Faster than inc de, guaranteed thanks to ALIGN[4]
-	; Copy second tile to first one
-	ld a, [bc]
-	ld [hli], a
-	; Clear second tile
-	xor a
-	ld [bc], a
-	inc c
-
+	ld [wSourceStack.entries], a
 	ld a, l
-	cp LOW(wTextTileBuffer + $10)
-	jr nz, .copyByte
+	ld [wSourceStack.entries + 1], a
 
-	; Go to next tile
-	ld hl, wLastTextTile
-	ld a, [hld]
-	ld c, a
-	assert wLastTextTile - 1 == wTextCurTile
+	jr z, .continuingString
+	ld hl, wNbPixelsDrawn
 	ld a, [hl]
-	cp c
-	inc a
-	jr c, .noWrap
-	ld a, [wWrapTileID]
-.noWrap
-	ld [hl], a
-
-	ld hl, wFlushedTiles
-	inc [hl]
-	pop hl
-	ret
-
-; Prints a VWF char (or more), applying delay if necessary
-; Might print more than 1 char, eg. if wTextLetterDelay is zero
-; Sets the high byte of the source pointer to $FF when finished
-; **DO NOT CALL WITH SOURCE DATA IN FF00-FFFF, THIS WILL CAUSE AN EARLY RETURN!!
-; Number of tiles to write to the tilemap is written in wFlushedTiles
-PrintVWFChar::
-	ld hl, wTextNextLetterDelay
-	ld a, [hl]
-	and a
-	jr nz, .delay
-	; xor a
-	ld [wFlushedTiles], a
-
-	ldh a, [hCurROMBank]
-	push af
-	ld a, BANK(_PrintVWFChar)
-	ldh [hCurROMBank], a
-	ld [rROMB0], a
-	call _PrintVWFChar
-	pop af
-	ldh [hCurROMBank], a
-	ld [rROMB0], a
-	ret
-
-.delay
-	dec a
-	ld [hl], a
-	ret
-
-
-RefillerOnlyControlChar:
-	ld bc, _RefillCharBuffer
-	push bc
-
-	push hl
-	add a, a
-	add a, LOW(RefillerOnlyControlChars)
-	ld l, a
-	ld a, $FF ; If we're here, the value in A is negative
-	adc a, HIGH(RefillerOnlyControlChars)
-	jr RefillerJumpControlChar
-
-RefillerControlChar:
-	add a, " " ; Restore the original value
-	add a, a ; Double for pointer calculation, and check for 0
-	jr z, RefillerTryReturning
-
-	ld bc, _RefillCharBuffer.afterControlChar
-	push bc
-	inc e ; Otherwise the char isn't counted to be written!
-	push hl
-	add a, LOW(RefillerControlChars - 2)
-	ld l, a
-	adc a, HIGH(RefillerControlChars - 2)
-	sub l
-RefillerJumpControlChar:
-	ld h, a
-	ld a, [hli]
-	ld b, [hl]
-	ld c, a
-	pop hl
-	push bc
-	ret
-
-
-RefillerTryReturning:
-	ld hl, wTextStackSize
-	ld a, [hl]
-	ld b, a
-	add a, a
-	ld [de], a ; If we're returning, we will need to write that $00; otherwise, it'll be overwritten
-	jp z, _RefillCharBuffer.done ; Too far to `jr`
-	dec b
-	ld [hl], b
-	add a, b ; a = stack size * 3 + 2
-	add a, LOW(wTextStack)
-	ld l, a
-	adc a, HIGH(wTextStack)
-	sub l
-	ld h, a
-	jr RestartCharBufRefill
-
-; Refills the char buffer, assuming at least half of it has been read
-; Newlines are injected into the buffer to implement auto line-wrapping
-; @param hl The current read ptr into the buffer
-RefillCharBuffer:
-	ld de, wTextCharBuffer
-	; First, copy remaining chars into the buffer
-	ld a, [wTextFillPtrEnd]
-	sub l
-	ld c, a
-	jr z, .charBufferEmpty
-.copyLeftovers
-	ld a, [hli]
-	ld [de], a
-	inc e
-	dec c
-	jr nz, .copyLeftovers
-.charBufferEmpty
-
-	; Cache charset ptr to speed up calculations
-	ld a, [wTextCharset]
-	ld [wRefillerCharset], a
-	add a, LOW(CharsetPtrs)
-	ld l, a
-	adc a, HIGH(CharsetPtrs)
-	sub l
-	ld h, a
-	ld a, [hli]
-	add a, 8 ; Code later on will want a +8 offset
-	ld [wCurCharsetPtr], a
-	ld a, 0 ; If you try to optimize this to `xor a` I will kick you in the nuts
-	adc a, [hl]
-	ld [wCurCharsetPtr+1], a
-
-	; Set a position to insert a newline at if the first word overflows
-	xor a
-	ld [wNewlinePtrLow], a
-
-	; Get ready to read chars into the buffer
-	ld hl, wTextSrcBank
-RestartCharBufRefill:
-	ld a, [hld]
-	ldh [hCurROMBank], a
-	ld [rROMB0], a
-	assert wTextSrcBank - 1 == wTextSrcPtr + 1
-	ld a, [hld]
-	ld l, [hl]
-	ld h, a
-
-_RefillCharBuffer:
-	ld a, [hli]
-	cp FIRST_READER_ONLY_CONTROL_CHAR
-	jr nc, RefillerOnlyControlChar
-	ld [de], a
-	sub " "
-	jr c, RefillerControlChar ; The refiller needs to be aware of some control chars
-
-	; Add char length to accumulated one
-	push hl
-	ld hl, wCurCharsetPtr
-	ld c, [hl]
-	inc hl
-	ld b, [hl]
-	ld l, a
-	ld h, 0
-	add hl, hl
-	add hl, hl
-	add hl, hl
-	add hl, bc ; Char * 8 + base + 8
-	ld c, a ; Stash this for later
-	ld b, 0
-	add hl, bc ; Char * 9 + base + 8
-	ld a, [wLineRemainingPixels]
-	sub a, [hl]
-.insertCustomSize
-	jr nc, .noNewline
-	ld b, a ; Stash this for later
-	; Line length was overflowed, inject newline into buffer
-	; Get ptr to newline injection point
-	ld h, d ; ld h, HIGH(wTextCharBuffer)
-	ld a, [wNewlinePtrLow]
-	ld l, a
-	ld d, "\n"
-	ld a, [wTextRemainingLines]
-	dec a
-	jr nz, .linesRemain
-	inc a
-	ld d, TEXT_SCROLL
-.linesRemain
-	ld [wTextRemainingLines], a
-	ld a, [wNewlinesUntilFull]
-	dec a
-	jr nz, .dontPause
-	ld d, TEXT_WAITBTN_SCROLL
-	ld a, [wTextNbLines]
-.dontPause
-	ld [wNewlinesUntilFull], a
-	; Dashes aren't overwritten on newlines, instead the newline is inserted right after
-	ld a, [hl]
-	cp " "
-	jr z, .overwritingNewline
-	cp TEXT_ZWS
-	jr nz, .noSoftHyphen
-	; A soft hyphen causes a hyphen to be placed over it, after which the newline is inserted
-	ld a, "-"
-	ld [hli], a
-.noSoftHyphen
-	; We're going to shift the entire buffer right, so count an extra char...
-	; ...unless doing so would overflow the buffer.
-	ld a, e
-	cp LOW(wTextCharBufferEnd - 1)
-	jr z, .bufferFull
-	inc e
-.bufferFull
-	; Swap characters between `d` and `[hl]` (we already have the char to be inserted in `d`)
-.copyNewlinedChars
-	ld a, d
-	ld d, [hl]
-	ld [hli], a
-	ld a, e ; Stop when we're about to write the last char
-	cp l
-	jr nz, .copyNewlinedChars
-	; But write it, of course!
-.overwritingNewline
-	ld [hl], d
-	; Restore dest ptr high byte
-	ld d, h ; ld d, HIGH(wTextCharBuffer)
-	; Compute the amount of pixels remaining after inserting the newline
-	; pixels now = pixels before word - word length ⇒ word length = pixels before word - pixels now
-	ld a, [wPixelsRemainingAtNewline]
-	sub b
-	ld b, a
-	; new line's pixels = line length - word length
-	ld a, [wTextLineLength]
-	sub b
-.noNewline
-	ld [wLineRemainingPixels], a
-	pop hl
-
-	ld a, c
-	; If the character is a dash or a space, a newline can be inserted
-	and a ; cp " " - " "
-	jr z, .canNewline
-	inc e ; This increment is also shared by the main loop
-	cp "-" - " " ; Dashes aren't *overwritten* by the newline, instead it's inserted after
-	ld a, e ; The increment has to be placed in an awkward way because it alters flags
-	jr z, .canNewlineAfter
-
-.afterControlChar
-	ld a, e
-	cp LOW(wTextCharBufferEnd - 2) ; Give ourselves some margin due to multi-byte control chars
-	jr c, _RefillCharBuffer
-
-	dec e ; Compensate for what's below
-.done
-	inc e ; If we jumped to .done, we have written a terminator, account for it
-	; Write src ptr for later
-	ld a, l
-	ld [wTextSrcPtr], a
-	ld a, h
-	ld [wTextSrcPtr+1], a
-	ldh a, [hCurROMBank]
-	ld [wTextSrcBank], a
-	; End the buffer refill at newlineable chars only
-	ld a, [wNewlinePtrLow]
 	cp 2
-	jr nc, .foundNewlineableChar
-	ld a, e
-.foundNewlineableChar
-	ld [wTextReadPtrEnd], a
-	ld a, e
-	ld [wTextFillPtrEnd], a
-
-	ld a, BANK(_PrintVWFChar)
-	ldh [hCurROMBank], a
-	ld [rROMB0], a
-	; Restart printer's reading
-	ld hl, wTextCharBuffer
-	ret
-
-
-.canNewline
-	ld a, e
-	inc e
-.canNewlineAfter
-	ld [wNewlinePtrLow], a
-	ld a, [wLineRemainingPixels]
-	ld [wPixelsRemainingAtNewline], a
-	jr .afterControlChar
-
-
-Reader2ByteNop:
-	ld a, [hli]
-	ld [de], a
-	inc e
-Reader1ByteNop:
-	ret
-
-ReaderSoftHyphen:
-	; TODO: the added hyphen might overflow the line when wrapping occurs
-	pop bc ; We will take a detour instead of returning
-	ld a, TEXT_ZWS
-	ld [de], a
-	jr _RefillCharBuffer.canNewline
-
-ReaderSetFont:
-	ld a, [wRefillerCharset]
+	jr c, .curTileIsBlank
+	; We must increment the tile ID, since we're about to begin a new tile.
+	ld a, [wCurTileID.max]
 	ld c, a
-	ld [wRefillerPrevFont], a
-	ld a, [hli]
-	ld [de], a
-	inc e
+	ld a, [wCurTileID]
+	inc a
+	cp c
+	jr nz, .noIDWrap
+	ld a, [wCurTileID.min]
+.noIDWrap
+	ld [wCurTileID], a
+.curTileIsBlank
+	; Clear the tile buffer to start afresh.
+	assert wTileBuffer.end == wNbPixelsDrawn
+	ld c, wTileBuffer.end - wTileBuffer + 1
+	xor a
+.resetTileBuffer
+	ld [hld], a
+	dec c
+	jr nz, .resetTileBuffer
+	; Reset some more variables.
+	; a = 0
+	ld [wFlags], a ; Reset all flags, too.
+	inc a ; ld a, 1
+	ld [wNbTicksToNextPrint], a ; Print on the next tick.
+	; Reset the lookahead's cache.
+	ld a, [wTextbox.width]
+	ld [wLookahead.nbTilesRemaining], a
+	; Compute how far down into the textbox we are.
+	ld hl, wTextbox.origin
+	ld a, [wPrinterHeadPtr]
+	sub [hl]
+	ld c, a
+	inc hl
+	ld a, [wPrinterHeadPtr + 1]
+	sbc a, [hl]
 	xor c
-	and $F0
-	jr ReaderUpdateCharset
-
-ReaderRestoreFont:
-	ld a, [wRefillerCharset]
-	and $0F
-	ld c, a
-	ld a, [wRefillerPrevFont]
-	and $F0
-	jr ReaderUpdateCharset
-
-ReaderSetVariant:
-	ld a, [wRefillerCharset]
-	ld c, a
-	ld [wRefillerPrevVariant], a
-	ld a, [hli]
-	ld [de], a
-	inc e
+	and $1F
 	xor c
-	and $0F
-	jr ReaderUpdateCharset
-
-ReaderRestoreVariant:
-	ld a, [wRefillerCharset]
-	and $F0
-	ld c, a
-	ld a, [wRefillerPrevVariant]
-	and $0F
-	; Fall through
-ReaderUpdateCharset:
-	xor c
-	ld [wRefillerCharset], a
-	add a, LOW(CharsetPtrs)
-	ld c, a
-	adc a, HIGH(CharsetPtrs)
-	sub c
+	rlca
+	rlca
+	rlca
 	ld b, a
-	ld a, [bc]
-	add a, 8 ; Add the offset to the character widths
-	ld [wCurCharsetPtr], a
-	inc bc
-	ld a, [bc]
-	adc a, 0
-	ld [wCurCharsetPtr+1], a
+	ld a, [wTextbox.height]
+	sub b
+	ld [wNbLinesRemaining], a
+.continuingString
+
+	ld a, 1
+	ld [wSourceStack.len], a
 	ret
 
-ReaderPrintBlank:
-	pop bc ; We're not gonna return because we're gonna insert a custom size instead
-	ld a, [hli] ; Read number of blanks
-	ld [de], a
-	; inc e ; Don't increment dest ptr because the code path we'll jump into will do it
-	ld c, a
-	ld a, [wLineRemainingPixels]
-	sub c
-	; We'll be jumping straight in the middle of some code path, make sure not to break it
+
+; Control character handlers jump back into `TickVWFEngine`, so for performance's sake (`jr`),
+; some are positioned before it, and others after.
+; All unexported functions (labels without `::`) are meant to be internal only.
+
+
+TextReturn:
+	pop hl ; We're not returning to the normal code path.
+	ld hl, wSourceStack.len
+	dec [hl]
+	jr nz, TickVWFEngine.reReadCurStackEntry ; Reuse the normal "read stack entry" path.
+	; Yes, we bypass all of the "cleanup"; we aren't planning to do anything else anyway.
+	runtime_assert TextReturn, sp == @_vwfEntrySp, "SP (\{sp,4$\}) != entry SP (\{_vwfEntrySp,4$\})!"
+	ret ; Conditional returns never perform better than avoiding them conditionally.
+
+HandleControlChar:
+	runtime_assert HandleControlChar, (a / 2 | $80) >= 256 - {NB_VWF_CTRL_CHARS}, "Invalid control character \{a / 2 | $80,2$\}"
+	; Keep processing characters after this one.
+	ld hl, TickVWFEngine.readInputChar
 	push hl
-	ld c, "A" ; Make sure we won't get a newline
-	jp _RefillCharBuffer.insertCustomSize ; Too far to `jr`
-
-ReaderWaitButton:
-	; Don't auto-wait for user input until the textbox has been entirely freshened
-	ld a, [wTextNbLines]
-	inc a ; The next newline will actually start introducing new text
-	ld [wNewlinesUntilFull], a
-	ret
-
-	; For the purpose of line length counting, newline, clearing and scrolling are the same
-	; For height counting, however...
-ReaderNewline:
-	ld a, [wTextRemainingLines]
-	dec a
-	ld [wTextRemainingLines], a
-	jr nz, ReaderScroll.checkFullBox
-	dec e ; dec de
-	ld a, TEXT_SCROLL
-	ld [de], a
-	inc e ; inc de
-
-ReaderScroll:
-	ld a, [wTextRemainingLines]
-	inc a
-	ld [wTextRemainingLines], a
-.checkFullBox
-	ld a, [wNewlinesUntilFull]
-	dec a
-	jr nz, StartNewLine
-	dec e ; dec de
-	ld a, TEXT_WAITBTN_SCROLL
-	ld [de], a
-	inc e ; inc de
-ReaderWaitButtonScroll:
-	ld a, [wTextRemainingLines]
-	inc a
-	ld [wTextRemainingLines], a
-	ld a, [wTextNbLines]
-	jr StartNewLine
-
-ReaderClear:
-	ld a, [wTextNbLines]
-	ld [wTextRemainingLines], a
-StartNewLine:
-	ld [wNewlinesUntilFull], a
-	; Reset line length, since we're forcing a newline
-	ld a, [wTextLineLength]
-	ld [wLineRemainingPixels], a
-	ret
-
-; Sets text ptr to given location
-ReaderJumpTo:
-	ld a, [hli]
-	ld b, a
+	; The label points to one past the table, and the indices are negative (kind of); subtracting
+	; 256 allows using the standard "unsigned" addition technique.
+	add a, LOW(ControlChars.handlers - 256)
+	ld l, a
+	adc a, HIGH(ControlChars.handlers - 256)
+	sub l
+	ld h, a
 	ld a, [hli]
 	ld h, [hl]
 	ld l, a
-	ld a, b
-	ldh [hCurROMBank], a
-	ld [rROMB0], a
-	ret
+	jp hl
 
-; Start printing a new string, then keep writing this one
-; NOTE: avoids corruption by preventing too much recursion, but this shouldn't happen at all
-ReaderCall:
-	ld a, [wTextStackSize]
-	IF DEF(STACK_OVERFLOW_HANDLER)
-		cp TEXT_STACK_CAPACITY
-		call nc, STACK_OVERFLOW_HANDLER
-	ENDC
+SoftHyphen:
+	pop hl ; We're not returning to the normal code path.
+	call ShouldBreakLine
+	jr z, TickVWFEngine.readInputChar ; If the line needs not be broken, then act as a no-op.
+	; Act as if we just read a hyphen; the line should break right after.
+	ld a, "-" * 2
+	jr TickVWFEngine.pretendCharRead
 
-	; Read target ptr
-	inc a ; Increase stack size
-	ld [wTextStackSize], a
 
-	; Get ptr to end of 1st empty entry
-	ld b, a
-	add a, a
-	add a, b
-	add a, LOW(wTextStack - 1)
-	ld c, a
-	adc a, HIGH(wTextStack - 1)
-	sub c
-	ld b, a
-	; Save ROM bank immediately, as we're gonna bankswitch
-	ldh a, [hCurROMBank]
-	ld [bc], a
-	dec bc
-
-	; Swap src ptrs
+TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to from other functions.
+	ld hl, wFlags
+	; Do nothing if either the WAITING or SCROLL flags are set; WAITING is obvious, but for SCROLL:
 	ld a, [hli]
-	ld [de], a ; Use current byte in char buffer as scratch
-	; Save src ptr now
+	; if WAIT_SCROLL's scrolling is still pending, refuse processing any chars to avoid queuing
+	; another scroll (which would overwrite the pending one).
+	and TEXTF_WAITING | TEXTF_SCROLL
+	ret nz
+
+	runtime_assert TickVWFEngine, [wSourceStack.len] != 0, "VWF engine called with empty stack!!!"
+	dbg_action TickVWFEngine, "set @_vwfEntrySp := @sp"
+	; TODO: runtime_assert that control chars declare the same length that they actually use
+
+	assert wFlags + 1 == wNbTicksToNextPrint
+	dec [hl]
+	ret nz
 	inc hl
-	inc hl
-	ld a, h
-	ld [bc], a
-	dec bc
-	ld a, l
-	ld [bc], a
-	; Read new src ptr
-	dec hl
+	assert wNbTicksToNextPrint + 1 == wNbTicksBetweenPrints
+	; Reload the timer.
 	ld a, [hld]
-	ld l, [hl]
-	ld h, a
-	; Perform bankswitch now that all bytecode has been read
-	ld a, [de]
-	ldh [hCurROMBank], a
-	ld [rROMB0], a
-	ret
+	sub 1
+	adc a, 1 ; Schedule for 1 tick instead of 256 if insta-printing!
+	ld [hl], a
+	; Alright gang, time to print characters and kick ass!
 
+	ld a, [wSourceBank]
+	switch_rom_bank
 
-SECTION "VWF ROMX functions + data", ROMX
-
-PrintVWFControlChar:
-	IF DEF(BAD_CTRL_CHAR_HANDLER)
-		; Check if ctrl char is valid
-		cp TEXT_BAD_CTRL_CHAR
-		call nc, BAD_CTRL_CHAR_HANDLER
-	ENDC
-
-	; Control char, run the associated function
-	ld de, _PrintVWFChar.charPrinted
-	push de
-
-	; Push the func's addr (so we can preserve hl when calling)
+	; Get the pointer to the active stack entry.
+	ld hl, wSourceStack.len
+.reReadCurStackEntry
+	ld a, [hld] ; This ensures that an offset of 1 (× 2) points to the first entry.
+	assert wSourceStack.len + 1 == wSourceStack.entries
 	add a, a
-	add a, LOW(ControlCharFuncs - 2)
-	ld e, a
-	adc a, HIGH(ControlCharFuncs - 2)
-	sub e
-	ld d, a
-	ld a, [de]
-	ld c, a
-	inc de
-	ld a, [de]
-	ld b, a
-	push bc
-	ret ; Actually jump to the function, passing `hl` as a parameter for it to read (and advance)
-
-_PrintVWFChar:
-	ld h, HIGH(wTextCharBuffer)
-	ld a, [wTextReadPtrLow]
+	add a, l
 	ld l, a
-
-.setDelayAndNextChar
-	; Reload delay
-	ld a, [wTextLetterDelay]
-	ld [wTextNextLetterDelay], a
-
-.nextChar
-	; First, check if the buffer is sufficiently full
-	; Making the buffer wrap would be costly, so we're keeping a safety margin
-	; Especially since control codes are multi-byte
-	ld a, [wTextReadPtrEnd]
-	cp l
-	IF DEF(OVERREAD_HANDLER)
-		call c, OVERREAD_HANDLER ; This needs to be first as it's a no-return
-	ENDC
-	call z, RefillCharBuffer ; If it was second this function could destroy carry and trigger it
-
-	; Read byte from string stream
-	ld a, [hli]
-	and a ; Check for terminator
-	jr z, .return
-	cp " "
-	jr c, PrintVWFControlChar
-
-; Print char
-
-	; Save src ptr & letter ID
-	push hl
-
-	sub " "
-	ld e, a
-
-	; Get ptr to charset table
-	ld a, [wTextCharset]
-	add a, LOW(CharsetPtrs)
-	ld l, a
-	adc a, HIGH(CharsetPtrs)
+	adc a, h ; TODO: alignment may make a carry impossible; check this everywhere the stack is accessed, too
 	sub l
 	ld h, a
+	; Read the active stack entry. (Big-endian!)
 	ld a, [hli]
+	ld e, [hl]
+	ld d, a
+
+.readInputChar
+	; This assertion is not checked at the function's entry point, so as to catch bugs caused by
+	; the engine looping into itself incorrectly.
+	; It is checked even for control chars, so as to report bugs even if they don't end up having
+	; any effect in a particular instance.
+	runtime_assert TickVWFEngine, [wNbPixelsDrawn] < 8, "VWF engine cannot draw correctly with un-flushed tile! (Either you forgot to call PrintVWFChars, or you found a bug internal to gb-vwf :D)"
+
+	runtime_assert TickVWFEngine, &de == [wSourceBank], "Text should be read from \{[wSourceBank],$\}:\{de:4$\}, \{&de,$\}:\{de:4$\} is loaded instead"
+	ld a, [de]
+	inc de ; By default, a character should be consumed. This will seldom be cancelled.
+	add a, a
+	jr c, HandleControlChar
+	; We have a printable character: print it!
+
+.pretendCharRead
+	ldh [hCurChar], a ; Save this for after the draw phase.
+	push de ; We cave in to register pressure for the draw phase. It's okay.
+
+	; Read the font's base pointer.
+	ld hl, wCurFont.ptr
+	ld c, [hl]
+	inc hl
 	ld b, [hl]
-	ld c, a
+	; Index into the table of glyphs, which are 8 bytes each.
+	ld l, a ; Char ID * 2
+	ld h, 0
+	add hl, hl ; Char ID * 4
+	add hl, hl ; Char ID * 8
+	add hl, bc ; Char ID * 8 + font ptr, i.e. `font->glyphs[char_id]` in C terms.
+	ld b, h ; We will only be reading from this into `a`, so it's fine.
+	ld c, l
 
-	; Get ptr to letter
-	ld d, 0
-	ld l, e
-	ld h, d ; ld h, 0
-	add hl, hl
-	add hl, hl
-	add hl, hl
-	add hl, de ; * 9
-	add hl, bc
-	ld d, h
-	ld e, l
+	ld a, BANK("VWF fonts and barrel shift table")
+	switch_rom_bank
 
-	; Get dest buffer ptr
-	ld hl, wTextTileBuffer
+	; Read by how much the glyph's pixels will need to be shifted right.
+	ld a, [wNbPixelsDrawn]
+	ldh [hNbPixelsDrawn], a
+	ld e, a
+	; Increase that by the glyph's width.
+	ld a, [hl] ; The width is stored in the 3 lower bits of the first byte.
+	and %111
+	add a, e
+	ld [wNbPixelsDrawn], a
 
+	ld d, HIGH(ShiftLUT) ; Prepare to index this table a whole lot.
+
+	; Draw the high bitplane if and only if its bit is set in wFlags.
+	; This is done in a separate loop to reduce the overhead incurred by checking the bit.
+	ld a, [wFlags]
+	bit TEXTB_COLOR, a
+	jr nz, .noHighBitplane
+	push bc ; Save the glyph data pointer for drawing the low bitplane.
+	ld hl, wTileBuffer + 2
+.drawHighBitplane
+	ld a, [bc]
+	inc bc
+	xor e ; Set the upper 5 bits to the row of pixels; the lower 3 are already the shift amount.
+	and $F8
+	xor e
+	assert LOW(ShiftLUT) == 0
+	ld e, a ; That Frankenstein mix is designed to work as an index into ShiftLUT.
+	ld a, [de] ; ...so these are the shifted pixels for the first tile.
+	or [hl]
+	ld [hli], a
+	inc d ; Switch to the second table.
+	ld a, [de] ; Read the shifted pixels for the second tile.
+	or [hl]
+	ld [hli], a
+	dec d ; Go back to the first table.
+	assert HIGH(wTileBuffer) == HIGH(wTileBuffer.end - 1)
+	inc l ; Skip the other bitplane.
+	inc l ;   (2 bytes.)
+	assert LOW(wTileBuffer) & (1 << 5) == 0
+	assert LOW(wTileBuffer.end) & (1 << 5) != 0
+	bit 5, l ; TODO: there may be potential to use one of the `inc l`s instead of this, using greater alignment
+	jr z, .drawHighBitplane
+	pop bc ; Restore the glyph data pointer.
+.noHighBitplane
+
+	; The low bitplane is drawn unconditionally. (Colour can be toggled between #1 and #3.)
+	ld hl, wTileBuffer
+.drawLowBitplane
+	ld a, [bc]
+	inc bc
+	xor e ; Set the upper 5 bits to the row of pixels; the lower 3 are already the shift amount.
+	and $F8
+	xor e
+	assert LOW(ShiftLUT) == 0
+	ld e, a ; That Frankenstein mix is designed to work as an index into ShiftLUT.
+	ld a, [de] ; ...so these are the shifted pixels for the first tile.
+	or [hl]
+	ld [hli], a
+	inc d ; Switch to the second table.
+	ld a, [de] ; Read the shifted pixels for the second tile.
+	or [hl]
+	ld [hli], a
+	dec d ; Go back to the first table.
+	assert HIGH(wTileBuffer) == HIGH(wTileBuffer.end - 1)
+	inc l ; Skip the other bitplane.
+	inc l ;   (2 bytes.)
+	assert LOW(wTileBuffer) & (1 << 5) == 0
+	assert LOW(wTileBuffer.end) & (1 << 5) != 0
+	bit 5, l ; TODO: there may be potential to use one of the `inc l`s instead of this, using greater alignment
+	jr z, .drawLowBitplane
+
+	pop de ; Restore the read pointer.
+	; Restore the source ROM bank also. This must be done now for the potential jump to `Newline`.
+	ld a, [wSourceBank]
+	switch_rom_bank
+
+	ldh a, [hCurChar]
+	IF " " == 0
+		and a
+	ELSE
+		cp " " * 2
+	ENDC
+	jr z, AfterBreakableChar
+	IF "-" == 0
+		and a
+	ELSE
+		cp "-" * 2
+	ENDC
+	jr z, AfterBreakableChar
+
+.processedChar
+	ld a, [wNbPixelsDrawn]
+	cp 8
+	jr nc, :+ ; Do not draw more characters if flushing is required.
+	ld a, [wNbTicksBetweenPrints] ; If insta-printing, batch characters.
+	and a
+	jp z, .readInputChar ; Too far to `jr` T_T
+:
+
+.doneProcessingChars
+	; Get the pointer to the active stack entry.
+	ld hl, wSourceStack.len
+	ld a, [hld] ; This ensures that an offset of 1 (× 2) points to the first entry.
+	assert wSourceStack.len + 1 == wSourceStack.entries
+	add a, a
+	add a, l
+	ld l, a
+	adc a, h
+	sub l
+	ld h, a
+	; Write back the updated source pointer.
+	ld a, d
+	ld [hli], a
+	ld [hl], e
+	runtime_assert TextReturn, sp == @_vwfEntrySp, "SP (\{sp,4$\}) != entry SP (\{_vwfEntrySp,4$\})!"
+	ret
+
+; Some special control chars.
+
+AfterBreakableChar:
+	call ShouldBreakLine
+	jr z, TickVWFEngine.processedChar
+	ldh a, [hCurChar]
+	IF " " == 0
+		and a
+	ELSE
+		cp " " * 2
+	ENDC
+	jr nz, :+
+	; Pretend that character was never drawn.
+	; TODO: I don't like that hack :( but it's necessary to take into account the space's own width
+	; for determining the length... ideally we'd do this right after advancing the width, but how?
+	ldh a, [hNbPixelsDrawn]
+	ld [wNbPixelsDrawn], a
+:
+	db $FE ; cp <imm8>, skipping the following `pop hl`.
+Newline:
+	pop hl ; We're not returning to the normal code path.
+	; If there are no more lines remaining, scroll up to make room.
+	ld hl, wNbLinesRemaining
+	dec [hl]
+	jr nz, .noNeedToScroll
+	inc [hl] ; Increment it back!
+.forceScroll
+	ld hl, wFlags
+	set TEXTB_SCROLL, [hl]
+.noNeedToScroll
+
+	; Force flushing of the current tile (unless it's blank).
+	ld hl, wNbPixelsDrawn
+	ld a, [hl]
+	cp 2
+	jr c, .curTileIsBlank
 	ld a, 8
-.printOneLine
-	ldh [hVWFRowCount], a
+.curTileIsBlank
+	ld [hli], a
+	assert wNbPixelsDrawn + 1 == wFlags
+	set TEXTB_NEWLINE, [hl]
 
-	ld a, [wTextCurPixel]
-	ld b, a
-	and a ; Check now if shifting needs to happen
+	; Avoid scrolling text off-screen that the user hasn't had a chance to "acknowledge" yet.
+	ld hl, wNbLinesRead
+	dec [hl]
+	jr nz, TickVWFEngine.doneProcessingChars
+	ld hl, wFlags
+	set TEXTB_WAITING, [hl]
+	jr TickVWFEngine.doneProcessingChars ; Flushing was just forced, so no more chars can be processed!
 
+WaitAndScroll:
+	ld hl, wFlags
+	set TEXTB_WAITING, [hl]
+	; fallthrough
+Scroll:
+	ld hl, wFlags
+	set TEXTB_SCROLL, [hl]
+	jr Newline.forceScroll ; Also skips decrementing `wNbLinesRemaining`.
+
+Wait:
+	pop hl ; We're not returning to the normal code path.
+	ld hl, wFlags
+	set TEXTB_WAITING, [hl]
+	jr TickVWFEngine.doneProcessingChars
+
+DelayNextChar:
+	pop hl ; We're not returning to the normal code path.
 	ld a, [de]
 	inc de
+	ld [wNbTicksToNextPrint], a
+	jr TickVWFEngine.doneProcessingChars ; A delay of 0 shall be interpreted as 256 frames.
 
-	ld c, 0
-	jr z, .doneShifting
-.shiftRight
-	rra ; Actually `srl a`, since a 0 bit is always shifted in
-	rr c
-	dec b
-	jr nz, .shiftRight
-.doneShifting
-	ld b, a
+; "Regular" control chars, that just return normally to `TickVWFEngine.readInputChar`.
 
-	ld a, [wTextColorID]
-	rra
-	jr nc, .noLSB
-	ld a, b
-	or [hl]
-	ld [hl], a
+TextCall:
+	; Reserve a new stack entry.
+	runtime_assert TextCall, [wSourceStack.len] <= {STACK_CAPACITY}, "VWF stack overflow! (Please reduce your text call depth, or increase STACK_CAPACITY)."
 
-	set 4, l
-	ld a, c
-	or [hl]
-	ld [hl], a
-	res 4, l
-
-	ld a, [wTextColorID]
-	rra
-.noLSB
-	inc l
-
-	rra
-	jr nc, .noMSB
-	ld a, b
-	or [hl]
-	ld [hl], a
-
-	set 4, l
-	ld a, c
-	or [hl]
-	ld [hl], a
-	res 4, l
-.noMSB
-	inc l
-
-	ldh a, [hVWFRowCount]
-	dec a
-	jr nz, .printOneLine
-
-	; Advance read by size
-	ld hl, wTextCurPixel
-	ld a, [de]
-	add a, [hl]
-	ld [hl], a
-
-	; Restore src ptr
-	pop hl
-
-.charPrinted
-	; Check if flushing needs to be done
-	ld a, [wTextCurPixel]
-	sub 8
-	jr c, .noTilesToFlush
-
-	; Move back by 8 pixels
-	ld [wTextCurPixel], a
-	; Flush them to VRAM
-	call FlushVWFBuffer
-	; Try flushing again (happens with characters 9 pixels wide)
-	; We might never use 9-px chars, but if we do, there'll be support for them ^^
-	jr .charPrinted
-
-; This block of code is only here to avoid turning a `jp` into a `jr`
-.return
-	; Tell caller we're done (if we're not, this'll be overwritten)
-	ld a, $FF
-	ld [wTextSrcPtr + 1], a
-	jr .flushAndFinish
-
-.noTilesToFlush
-	; If not printing next char immediately, force to flush
-	ld a, [wTextNextLetterDelay]
-	and a
-	jp z, .setDelayAndNextChar
-	dec a
-	ld [wTextNextLetterDelay], a
-	; Write back new read ptr into buffer for next iteration
-	ld a, l
-	ld [wTextReadPtrLow], a
-
-.flushAndFinish
-	; Check if flushing is necessary
-	ld a, [wTextCurPixel]
-	cp 2
-	ret c
-
-	; We're not using FlushVWFBuffer because we don't want to advance the tile
-	ld a, [wTextTileBlock]
-	ld d, a
-	ld a, [wTextCurTile]
-	swap a
-	ld h, a
-	and $F0
+	ld hl, wSourceStack.len
+	inc [hl]
+	ld a, [hl] ; Not decrementing means that we'll point at the entry's second byte.
+	add a, a ; Each entry is 2 bytes.
+	add a, l
 	ld l, a
-	xor h
-	add a, d
+	adc a, h
+	sub l
 	ld h, a
-	ld de, wTextTileBuffer
-.copyTile
-	ldh a, [rSTAT]
-	and STATF_BUSY
-	jr nz, .copyTile
+	; Write the new entry. (Stack entries are big-endian, but we're writing it backwards!)
+	; Note that we do this before writing back the current entry, because the "return pointer"
+	; still needs to advance to read the operand.
+	; TODO: wait, why write it to the stack now? Isn't setting `de` enough?
 	ld a, [de]
-	ld [hli], a
-	inc e ; inc de
+	inc de
+	ld [hld], a
+	ld c, a ; Cache this to avoid re-reading the entry we're writing.
 	ld a, [de]
-	ld [hli], a
-	inc e ; inc de
-	bit 4, e
-	jr z, .copyTile
-	ret
-
-
-ControlCharFuncs:
-	CTRL_CHAR_PTRS
-
-
-TextDelay:
-	ld a, [hli]
-	ld [wTextNextLetterDelay], a
-	ret
-
-
-TextRestoreFont:
-	ld de, wTextCharset
-	ld a, [de]
-	and $0F
-	ld b, a
-	ld a, [wPreviousFont]
-	and $F0
-	jr _TextSetCharset
-
-TextRestoreVariant:
-	ld de, wTextCharset
-	ld a, [de]
-	and $F0
-	ld b, a
-	ld a, [wPreviousVariant]
-	and $0F
-	jr _TextSetCharset
-
-TextSetVariant:
-	ld de, wTextCharset
-	ld a, [de]
-	ld [wPreviousVariant], a
-	and $F0
-	ld b, a
-	ld a, [hli]
-	and $0F
-	jr _TextSetCharset
-
-TextSetFont:
-	ld de, wTextCharset
-	ld a, [de]
-	ld [wPreviousFont], a
-	and $0F
-	ld b, a
-	ld a, [hli]
-	and $F0
-_TextSetCharset:
-	or b
-	ld [de], a
-	jr PrintNextCharInstant
-
-
-TextSetColor:
-	ld a, [hli]
-	and 3
-	ld [wTextColorID], a
-	jr PrintNextCharInstant
-
-
-MACRO skip_key
-	IF !DEF(\1)
-		FAIL "Please define \1"
-	ELSE
-		; Do not use ELIF to work around https://github.com/gbdev/rgbds/issues/764
-		IF \1 != 0
-			ldh a, [\2]
-			IF \1 == 1
-				rra
-				jr c, \3
-			ELIF \1 == 1 << 7
-				add a, a
-				jr c, \3
-			ELSE
-				and \1
-				jr nz, \3
-			ENDC
-		ENDC
-	ENDC
-ENDM
-TextWaitButton:
-	xor a ; FIXME: if other bits than 7 and 6 get used, this is gonna be problematic
-	ld [wTextFlags], a
-	; End this char if suitable user input is found
-	skip_key SKIP_HELD_KEYS, hHeldKeys, PrintNextCharInstant
-	skip_key SKIP_PRESSED_KEYS, hPressedKeys, PrintNextCharInstant
-	; If no button has been pressed, keep reading this char
-	; Ensure the engine reacts on the very next frame to avoid swallowing buttons
-	ld a, 1
-	ld [wTextNextLetterDelay], a
-	; We know that text is running, so it's fine to overwrite bit 7
-	ld a, $40
-	ld [wTextFlags], a
-	; Decrement src ptr so this char keeps getting read
+	inc de
+	ld [hld], a
+	; Write back the pointer to "return" to. Note that `a` is preserved throughout.
+	ld [hl], e
 	dec hl
+	ld [hl], d
+	; Resume reading from the new pointer. Note that we reuse a `ld d, a` from the "main" path.
+	ld e, c
+	ld d, a
 	ret
 
-
-TextPrintBlank:
-	ld a, [hli]
-	ld c, a
-	ld a, [wTextCurPixel]
-	add a, c
-	ld c, a
-	and $F8
-	jr z, .noNewTiles
-	rrca
-	rrca
-	rrca
-	ld b, a
-.printNewTile
-	push bc
-	call FlushVWFBuffer ; Preserves HL
-	pop bc
-	dec b
-	jr nz, .printNewTile
-.noNewTiles
-	ld a, c
-	and 7
-	ld [wTextCurPixel], a
-	; Fall through
-
-PrintNextCharInstant:
-	xor a
-	ld [wTextNextLetterDelay], a
-	ret
-
-
-TextWaitButtonScroll:
-	call TextWaitButton
-	; The function returns with a = 0 iff the user has input something
-	and a
-	ret nz
-	; fallthrough
-
-TextScroll:
-	push hl
-
-	ld b, b ; You'll have to write your own code here
-		ld hl, vText
-		ld de, vText + SCRN_VX_B
-		ld b, TEXT_HEIGHT_TILES - 1
-	.shiftTilemapRows
-		ld c, TEXT_WIDTH_TILES
-	.shiftRow
-		ldh a, [rSTAT]
-		and STATF_BUSY
-		jr nz, .shiftRow
-		ld a, [de]
-		ld [hli], a
-		inc e
-		dec c
-		jr nz, .shiftRow
-		ld a, e
-		add a, SCRN_VX_B - TEXT_WIDTH_TILES
-		ld e, a
-		adc a, d
-		sub e
-		ld d, a
-		ld hl, -SCRN_VX_B
-		add hl, de
-		dec b
-		jr nz, .shiftTilemapRows
-		lb bc, 0, TEXT_WIDTH_TILES
-		call LCDMemsetSmallFromB
-
-	ld hl, wPenPosition
-	ld a, [hl]
-	sub SCRN_VX_B
-	ld [hli], a
-	jr nc, .noCarry
-	dec [hl]
-.noCarry
-	pop hl
-	; fallthrough
-
-TextNewline:
-	; Flush the current tile if non-blank
-	ld a, [wTextCurPixel]
-	cp 2
-	call nc, FlushVWFBuffer
-	; Reset position
-	xor a
-	ld [wTextCurPixel], a
-
-	ld de, wNbNewlines
+TextJumpTo:
+	; Simply read the operand, and continue reading from there.
 	ld a, [de]
+	inc de
+	ld l, a
+	ld a, [de]
+	ld e, l
+	ld d, a
+	ret
+
+SetVariant:
+	ld hl, wCurFont.id
+	ld a, [de] ; New variant.
+	xor [hl]
+	and (1 << NB_VARIANT_BITS) - 1 ; Keep only the variant bits from the operand.
+	xor [hl]
+	jr SetFont.updatePtr
+SetFont:
+	ld hl, wCurFont.id
+	ld a, [de]
+.updatePtr
+	inc de
+	ld [hli], a
+	; Refresh the cached font pointer.
+	assert wCurFont.id + 1 == wCurFont.ptr
+	add a, a ; Font table entries are 2 bytes each.
+	add a, LOW(FontPtrTable)
+	ld c, a
+	adc a, HIGH(FontPtrTable)
+	sub c
+	ld b, a
+	ld a, [bc]
+	ld [hli], a
+	inc bc
+	ld a, [bc]
+	ld [hli], a
+	ret
+
+SetColor:
+	ld hl, wFlags
+	ld a, [de]
+	inc de
+	; Keep the "color" flag from `a`, and all other bits from `wFlags`.
+	xor [hl]
+	and TEXTF_COLOR
+	xor [hl]
+	ld [hl], a
+	ret
+
+ExternalSync:
+	ld hl, wFlags
+	set TEXTB_SYNC, [hl]
+	ret
+
+
+; The "lookahead" used by the auto-linewrapper.
+
+; Looks ahead in the character stream to check whether a line break should be inserted here.
+; @return zf: Clear if the line should be broken right now.
+; @destroy a
+ShouldBreakLine:
+	runtime_assert ShouldBreakLine, [wTextbox.width] != 0, "Textbox must have a non-zero width!"
+	runtime_assert ShouldBreakLine, [wTextbox.width] <= 32, "Textbox cannot be wider than a tilemap!"
+	push de ; Save the source pointer.
+
+	; Copy all shadow variables.
+	; (Unrolling is, at 4 bytes, faster and as small as the standard loop.)
+	ld bc, wCurFont.id
+	ld hl, wLookahead.fontID
+	assert wCurFont.id + 1 == wCurFont.ptr
+	assert wLookahead.fontID + 1 == wLookahead.fontPtr
+	assert wCurFont.ptr + 2 == wSourceStack.len
+	assert wLookahead.fontPtr + 2 == wLookahead.stackLen
+	REPT 4 - 1
+		ld a, [bc]
+		inc bc
+		ld [hli], a
+	ENDR
+	ld a, [bc]
+	ld [hl], a
+
+	ld a, [wNbPixelsDrawn]
+	ld l, a
+	ld a, [wLookahead.nbTilesRemaining]
+	add a, a ; × 2
+	add a, a ; × 4
+	add a, a ; × 8 (pixels/tile)
+	inc a ; Since the last column of all glyphs is transparent, allow one extra pixel to compensate.
+	sub l ; The active tile is currently being drawn to, subtract those pixels.
+	; It's possible that the textbox has been overflowed, but it only happens with spaces.
+	; TODO: it'd be nice to runtime_assert that...
+	jr c, .return ; Breaking is required, and Z cannot be set right now.
+	ld [wLookahead.nbPixelsRemaining], a
+
+.readInputChar
+	ld a, [de]
+	inc de
+	add a, a
+	jr c, .controlChar
+	; A space is breakable, so we wouldn't need to break before it.
+	IF " " == 0
+		and a
+	ELSE
+		cp " " << 1
+	ENDC
+	jr z, .return
+	ld c, a ; Remember the glyph ID for later.
+	; Compute the pointer to the glyph's width.
+	ld l, a
+	ld h, 0
+	add hl, hl ; × 4
+	add hl, hl ; × 8
+	ld a, [wLookahead.fontPtr]
+	add a, l
+	ld l, a
+	ld a, [wLookahead.fontPtr + 1]
+	adc a, h
+	ld h, a
+	; Read the glyph's width, which is in a different bank (and restore the bank right after).
+	ld a, BANK("VWF fonts and barrel shift table")
+	switch_rom_bank
+	ld a, [hl] ; The length is in the bottom 3 bits of the first byte.
+	and %111
+	ld l, a
+	ld a, [wSourceBank]
+	switch_rom_bank
+	; Subtract the glyph's length from the remaining pixels.
+	ld a, [wLookahead.nbPixelsRemaining]
+	sub l
+	jr c, .return ; We would overflow! Z cannot be set right now.
+	ld [wLookahead.nbPixelsRemaining], a
+	; Check for printable characters that can be broken after.
+	ld a, c
+	IF "-" == 0
+		and a
+	ELSE
+		cp "-" << 1
+	ENDC
+	jr nz, .readInputChar
+
+.returnShouldntBreak
+	xor a
+.return
+	pop de ; Restore the source pointer.
+	ret
+
+
+.controlChar
+	runtime_assert ShouldBreakLine, cf, "Internal bug: carry isn't set!?"
+	rra ; Restore the original value, since it's actually easier to process that way.
+	assert VWF_END == $FF
 	inc a
-	ld [de], a
-	dec a
-	add a, LOW(wNewlineTiles)
+	jr z, .end
+	assert VWF_CALL == $FE
+	inc a
+	jr z, .call
+	assert VWF_JUMP == $FD
+	inc a
+	jr z, .jump
+	assert VWF_SET_FONT == $FC
+	inc a
+	jr z, .setFont
+	assert VWF_SET_VARIANT == $FB
+	inc a
+	jr z, .setVariant
+	assert VWF_ZWS == $FA
+	inc a
+	jr z, .zws ; A ZWS is breakable, so we can just return Z!
+	; Other control chars will skip however many operand bytes the table specifies.
+	assert BANK(ControlChars.lengths) == 0
+	add a, LOW(ControlChars.lengths - 256)
+	ld l, a
+	adc a, HIGH(ControlChars.lengths - 256)
+	sub l
+	ld h, a
+	ld a, [hl] ; The length.
+	rrca ; The LSB indicates that the control char ends a line.
+	jr c, .returnShouldntBreak
+	add a, e
 	ld e, a
-	adc a, HIGH(wNewlineTiles)
+	adc a, d
 	sub e
 	ld d, a
-	ld a, [wTextCurTile]
+	jr .readInputChar
+
+.end
+	ld hl, wLookahead.stackLen
+	ld a, [hl]
+	add a, a ; Check if we went through a "one-way call"; if so, we can't return.
+	jr c, .returnShouldntBreak ; We want to return Z, but we don't know Z's value right now.
+	dec [hl] ; Decrement the stack length.
+	jr z, .return ; We wouldn't overflow before the text stream ends, and Z is set.
+	; Compute the address of the stack entry we should read from.
+	add a, LOW(wSourceStack.entries - 2) ; `a` contains the original length, doubled.
+	ld l, a
+	adc a, HIGH(wSourceStack.entries - 2)
+	sub l
+	ld h, a
+	; Read it.
+	ld a, [hli]
+	ld e, [hl]
+	ld d, a
+	jr .readInputChar
+
+.jump
+	runtime_assert ShouldBreakLine, zf, "Internal bug: Z isn't set!?"
+	ld a, [de]
+	inc de
+	ld c, a
+	db $C4 ; call nz, <imm16>, skipping the following `set 7, [hl]`.
+.oneWayCall
+	set 7, [hl] ; Set the "one-way" flag.
+	; Jump to the callee.
+	ld a, [de]
+	ld d, a
+	ld e, c
+	jp .readInputChar ; TODO: too far to `jr` :(
+
+.zws
+	; A ZWS is breakable, but prints a hyphen when broken at.
+	; If there aren't enough pixels to do that, we will have to break now!
+	; (Note: this would be suboptimal if the character *after* was breakable, but it seems
+	; preferable to assume that whoever writes the text is reasonable, for performance's sake.)
+	; Get the current font's hyphen width.
+	ld a, [wLookahead.fontPtr]
+	add a, LOW("-" * 8) ; Font offset computed at compile time :)
+	ld l, a
+	ld a, [wLookahead.fontPtr + 1]
+	adc a, HIGH("-" * 8)
+	ld h, a
+	ld a, [hl]
+	and %111
+	ld l, a
+	; Check if enough pixels remain.
+	ld a, [wLookahead.nbPixelsRemaining]
+	sub l
+	jr c, .return ; If there aren't enough pixels, return with NZ (zero doesn't generate a carry).
+	; Otherwise, return that we don't need to break now, as there will be enough room to break at the ZWS
+	; (should the check that will be performed when handling it fail).
+	jr .returnShouldntBreak
+
+.setFont
+	ld hl, wLookahead.fontID
+	ld a, [de]
+.updateFontPtr
+	inc de
+	ld [hli], a
+	; Refresh the cached font pointer.
+	assert wLookahead.fontID + 1 == wLookahead.fontPtr
+	add a, a ; Font table entries are 2 bytes each.
+	add a, LOW(FontPtrTable)
+	ld c, a
+	adc a, HIGH(FontPtrTable)
+	sub c
+	ld b, a
+	ld a, [bc]
+	ld [hli], a
+	inc bc
+	ld a, [bc]
+	ld [hli], a
+	jp .readInputChar ; TODO: too far to `jr` :(
+
+.setVariant
+	ld hl, wLookahead.fontID
+	ld a, [de] ; New variant.
+	xor [hl]
+	and (1 << NB_VARIANT_BITS) - 1 ; Keep only the variant bits from the operand.
+	xor [hl]
+	jr .updateFontPtr
+
+.call
+	runtime_assert ShouldBreakLine, [wLookahead.stackLen] < STACK_CAPACITY, "VWF stack overflow during lookahead! (Please reduce your text call depth, or increase STACK_CAPACITY.)"
+	ld hl, wLookahead.stackLen
+	inc [hl] ; Increment the stack depth.
+	; Read the first byte of the new pointer, since we have to do that on all code paths.
+	ld a, [de]
+	inc de
+	ld c, a
+	; If the simulated stack is shallower than the real one, we can't store the return addr.
+	ld a, [wSourceStack.len]
+	cp [hl]
+	jr nc, .oneWayCall ; Can't return from this one.
+	; Compute the pointer to the new entry.
+	add a, a
+	add a, LOW(wSourceStack.entries - 2)
+	ld l, a
+	adc a, HIGH(wSourceStack.entries - 2)
+	sub l
+	ld h, a
+	; Read the second half of the target pointer.
+	ld a, [de]
+	inc de
+	; Save the current read pointer. Stack entries are big-endian!
+	ld [hl], d
+	inc hl
+	ld [hl], e
+	; Switch to the new source pointer.
+	ld d, a
+	ld e, c
+	jp .readInputChar ; TODO: too far to `jr` :(
+
+
+PrintVWFChars::
+	ld a, [wNbPixelsDrawn]
+	sub 8
+	jr c, .noNeedToFlush
+	ld [wNbPixelsDrawn], a
+
+	; Decrement the count for the lookahead.
+	ld hl, wLookahead.nbTilesRemaining
+	dec [hl]
+
+	; TODO: storing the font upside-down may be more efficient than writing backwards?
+
+	; Compute the pointer to the tile in VRAM.
+	ld a, [wCurTileID]
+	call .computeTilePtr
+	; We need a pointer to the end of the tile, since we run through it backwards.
+	; TODO: what about storing fonts backwards, instead? Might complicate writing the "active" tile...
+	ld a, e
+	add a, 16
+	ld e, a
+	adc a, d
+	sub e
+	ld d, a
+
+	ld hl, wTileBuffer.end - 1
+.shiftTileData
+	dec de
+	ld b, [hl] ; Grab the right tile's pixels,
+	wait_vram
+	runtime_assert PrintVWFChars, a == 0, "`wait_vram` macro returned a == \{a,2$\}, not 0!"
+	ld [hld], a ; ...and reset them.
+	ld a, [hl]
 	ld [de], a
-	jr PrintNextCharInstant
+	ld a, b
+	ld [hld], a
+	assert LOW(wTileBuffer.end - 1) & (1 << 5) == 0
+	assert LOW(wTileBuffer - 1) & (1 << 5) != 0
+	bit 5, l
+	jr z, .shiftTileData
 
+	; Write the new tile's ID to the tilemap.
+	; It would be more optimised to write it earlier, since we read `wCurTileID` already;
+	; but it could lead to showing a partially-written tile, so let's not.
+	ld hl, wPrinterHeadPtr
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	; TODO: check that the target is in-bounds
+	ld a, [wCurTileID.max]
+	ld b, a
+	wait_vram
+	ld a, [wCurTileID]
+	ld [hli], a
+	; We interrupt your regular schedule to increment the tile ID, since we have it in `a`.
+	inc a
+	cp b
+	jr nz, .noIDWrap
+	ld a, [wCurTileID.min]
+.noIDWrap
+	ld [wCurTileID], a
+	; Now, back to updating the "printer head".
+	ld a, l
+	ld [wPrinterHeadPtr], a
+	ld a, h
+	ld [wPrinterHeadPtr + 1], a
+.noNeedToFlush
 
-TextSync:
-	ld a, [wTextFlags]
-	set 7, a
-	ld [wTextFlags], a
-	ret
+	ld a, [wFlags]
+	bit TEXTB_NEWLINE, a
+	jr z, .noNewline
+	res TEXTB_NEWLINE, a
+	ld [wFlags], a
+	; A new line refreshes the width (obviously).
+	ld a, [wTextbox.width]
+	ld [wLookahead.nbTilesRemaining], a
+	; Move back to the beginning of the line...
+	ld hl, wPrinterHeadPtr
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	ld a, [wTextbox.origin]
+	xor l
+	and SCRN_VX_B - 1
+	xor l
+	; ...then down by one line.
+	add a, SCRN_VX_B
+	ld l, a
+	ld [wPrinterHeadPtr], a
+	adc a, h
+	sub l
+	ld [wPrinterHeadPtr + 1], a
+.noNewline
 
+	; This must be checked for *outside* of the newline block, because WAIT_SCROLL causes the newline
+	; to be processed on the same tick, but the scroll to be delayed until the WAITING flag is cleared.
+	ld hl, wFlags
+	bit TEXTB_SCROLL, [hl]
+	jr z, .notScrolling
+	bit TEXTB_WAITING, [hl] ; To support WAIT_SCROLL.
+	jr nz, .notScrolling
+	res TEXTB_SCROLL, [hl]
 
-TextClear:
-	push hl
-	;;;; You'll probably want to clear some tilemap here ;;;;
-	ld b, b
-		ld hl, vText
-		ld e, TEXT_HEIGHT_TILES
-	.clearTilemap
-		lb bc, 0, TEXT_WIDTH_TILES
-		call LCDMemsetSmallFromB
-		ld a, l
-		add a, SCRN_VX_B - TEXT_WIDTH_TILES
-		ld l, a
-		adc a, h
-		sub l
-		ld h, a
-		dec e
-		jr nz, .clearTilemap
+	ld hl, wTextbox.origin
+	ld a, [hli]
+	ld d, [hl]
+	ld e, a
+.scrollNextRow
+	; The source row is one below the target.
+	ld hl, SCRN_VX_B
+	add hl, de
+	; Check if we are about to shift into the active row.
+	; Must do the check before shifting for performance and correctness' sake.
+	ld a, [wPrinterHeadPtr + 1]
+	cp h
+	jr nz, :+
+	ld a, [wPrinterHeadPtr]
+	cp l
+	jr z, .doneScrolling
+:
+	push hl ; Save the address of the beginning of the next row.
+	; Copy the row.
+	ld a, [wTextbox.width]
+	ld c, a
+.scrollRow
+	wait_vram
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec c
+	jr nz, .scrollRow
+	pop de ; Retrieve the address of the beginning of the next row.
+	jr .scrollNextRow
 
+.doneScrolling
+	; Move the "print head" back by one row.
+	ld hl, wPrinterHeadPtr
+	ld a, e
+	ld [hli], a
+	ld [hl], d
+	; Clear the new row.
+	ld a, [wTextbox.width]
+	ld c, a
+	; Writing to [hl] is far more efficient.
+	ld l, e
+	ld h, d
+:
+	wait_vram
+	; We are very careful with the comparison, to support e.g. `-DVWF_EMPTY_TILE_ID=[wEmptyTileID]`
+	IF !STRCMP("{VWF_EMPTY_TILE_ID}", "$0") || !STRCMP("{VWF_EMPTY_TILE_ID}", "0") ; best-effort optimisation.
+		; a = 0 right now, from `wait_vram`.
+	ELSE
+		ld a, VWF_EMPTY_TILE_ID
+	ENDC
+	ld [hli], a
+	dec c
+	jr nz, :-
 
-	; Reset text printing
-	; Don't flush if current tile is empty
-	ld a, [wTextCurPixel]
+.notScrolling
+
+	; Flush the "active" tile to VRAM (and write its ID to the tilemap) if necessary.
+	ld a, [wNbPixelsDrawn] ; If that tile is blank, don't bother.
 	cp 2
-	; Flush buffer to VRAM
-	call nc, FlushVWFBuffer
-	; Reset position always, though
-	xor a
-	ld [wTextCurPixel], a
-	; The pen should not advance, should we have flushed a tile
-	ld [wFlushedTiles], a
-	ld [wNbNewlines], a
+	ret c
+	runtime_assert PrintVWFChars, [wPrinterHeadPtr!] & $1F < ([wTextbox.origin!] & $1F) + [wTextbox.width], "Went past textbox right side!"
+	; If "insta-printing", don't bother showing the incomplete tile, it will be filled next time.
+	; This saves CPU for each call to this function.
+	ld a, [wNbTicksBetweenPrints]
+	and a
+	jr nz, :+
+	ld a, [wSourceStack.len] ; Well, unless there isn't going to be a "next time".
+	and a
+	ret nz
+:
 
-	;;;; You will probably want to reset the pen position, too ;;;;
-	ld b, b
-		ld hl, vText
-		call SetPenPosition
+	ld a, [wCurTileID]
+	call .computeTilePtr
+	ld hl, wTileBuffer - 1
+	ld c, 16 / 2
+.copyPartialTile
+	inc hl
+	wait_vram
+	ld a, [hli]
+	ld [de], a
+	inc de
+	inc hl
+	ld a, [hli]
+	ld [de], a
+	inc de
+	dec c
+	jr nz, .copyPartialTile
+	; Write the tile ID to the tilemap.
+	ld hl, wPrinterHeadPtr
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	ld a, [wCurTileID]
+	ld [hl], a
+	ret
 
-	pop hl
+.computeTilePtr
+	swap a
+	ld d, a
+	and $F0
+	ld e, a
+	xor d ; [wCurTileID] & $0F
+	and $08 ; The "sign" bit.
+	add a, a ; Shift it in position...
+	xor HIGH($9000) ; ...for this.
+	xor d
+	and $F0 ; Keep the upper 4 bits that were just computed, and the lower 4 bits of `d`.
+	xor d
+	ld d, a
 	ret
 
 
-SECTION "Charset data", ROM0
+FontPtrTable:
+	font_ptrs
 
-IF !DEF(NB_CHARSETS)
-	FAIL "Please define NB_CHARSETS!"
-ENDC
+ControlChars:
+	ctrl_char_ptrs
+.handlers ; Note that this must point to the *end* of the table!
 
-CharsetPtrs::
-	rsreset
-	REPT NB_CHARSETS
-		def CHARSET equs "CHARSET_{d:_RS}"
-		def CHARSET_DEFINED equs "DEF({CHARSET})"
+	ctrl_char_lens
+.lengths ; Same.
 
-		IF CHARSET_DEFINED
-			def CHARSET_LABEL equs "Charset{d:_RS}"
-			dw CHARSET_LABEL
-			PUSHS
-SECTION "Charset {d:_RS}", ROM0
-CHARSET_LABEL:
-				INCBIN "{{CHARSET}}"
-				IF @ - CHARSET_LABEL > CHARACTER_SIZE * NB_FONT_CHARACTERS
-					WARN "Charset {d:_RS} is larger than expected; keep in mind they can only contain {d:NB_FONT_CHARACTERS} characters"
-				ENDC
-			POPS
-			PURGE CHARSET_LABEL
 
-		ELSE
-			dw 0
-		ENDC
-		PURGE CHARSET_DEFINED
-		PURGE CHARSET
-		rsset _RS + 2
+PUSHS
+
+SECTION FRAGMENT "VWF fonts and barrel shift table", ROMX
+
+; 512 bytes to (barrel-)shift 5 bits across two bytes. Seems like a fair tradeoff?
+ShiftLUT: align 8
+	FOR i, 0, 256
+		def pixels = i & $F8
+		def shift_amt = i & $07
+		db pixels >> shift_amt
+	ENDR
+	FOR i, 0, 256
+		def pixels = i & $F8
+		def shift_amt = i & $07
+		db LOW((pixels << 8) >> shift_amt)
 	ENDR
 
 
-SECTION "VWF engine memory", WRAM0,ALIGN[7]
-
-wTextCharBuffer::
-	ds 64
-wTextCharBufferEnd:: ; We need this not to be on a 256-byte boundary
-	assert HIGH(wTextCharBuffer) == HIGH(wTextCharBufferEnd)
-
-	assert @ & -(1 << 6)
-wTextTileBuffer::
-	ds $10 * 2
-
-	assert @ & -(1 << 5)
-; Format of entries: ptr(16bit LE), bank
-wTextStack::
-	ds TEXT_STACK_CAPACITY * 3
-; Number of entries in the stack
-wTextStackSize::
-	db
+	font_data
 
 
-wTextCurPixel::
-	db
-wTextCurTile::
-	db
-; ID of the last tile the VWF engine is allowed to write to
-wLastTextTile::
-	db
-; Tells which tile to wrap to when going past the above
-wWrapTileID::
-	db
-; This allows selecting the "tile block" to use
-; Write $80 for tiles in $8000-8FFF
-; Write $90 for tiles in $9000-97FF
-; Other values are not officially supported, experiment yourself
-wTextTileBlock::
+SECTION "VWF engine memory", WRAM0
+
+;; "Pen" memory.
+
+; The two tiles are interleaved, i.e.:
+;  - Row #0,  low bitplane,  left tile
+;  - Row #0,  low bitplane, right tile
+;  - Row #0, high bitplane,  left tile
+; ...
+; TODO: grouping by bitplanes first would make the rendering code faster, at the cost of making the tile copy slower... but by how much?
+wTileBuffer: align 6 ; `align 5` ensures fast iteration (8-bit `inc`), and `align 6` ensures a fast loop check (`bit 5`).
+	ds 16 * 2
+.end:
+
+; X coordinate within the "leftmost" tile.
+; If 8 or more, that tile must be "flushed" to VRAM.
+wNbPixelsDrawn::
 	db
 
-; Tells which color to use in the palette for the text (in range 0-3)
-wTextColorID::
+; Some miscellaneous flags, see the `flag` macro's definition for a list.
+; Please leave the flags marked "internal" unchanged! And, for forwards compat, the unused bits as well.
+wFlags::
 	db
 
-; Defines which character table to use
-; Upper nibble is language-defined, lower nibble is decoration
-wTextCharset::
+; How many ticks before the next character is printed.
+; Note that 0 here behaves as "256 ticks", not 0.
+wNbTicksToNextPrint:
+	db
+; How many ticks between printing two characters.
+; If this is zero, then `TickVWFEngine` will batch as many characters as can fit in a single tile
+; per call, but will return after that (you must still call `PrintVWFChars` as usual).
+wNbTicksBetweenPrints::
 	db
 
-wPreviousFont::
-	db
-wPreviousVariant::
+wCurFont:
+	.id
+		db
+	.ptr ; The font pointer is cached to avoid re-computing it more often than it's changed.
+		dw
+
+wSourceStack:
+	.len::
+		db
+	.entries ; Pointers only, no bank IDs. Note that they are stored big-endian.
+		ds 2 * STACK_CAPACITY
+
+wSourceBank:
 	db
 
-wTextSrcPtr::
+;; "Printer" memory.
+
+; ID of the next tile in VRAM that will be written to.
+wCurTileID::
+	db
+.min:: ; Minimum value wCurTileID can take.
+	db
+.max:: ; Maximum value wCurTileID can take. (Exclusive.)
+	db
+
+; Pointer to the tilemap location where the next tile ID will be written.
+; NOTE: if modifying this, you should probably also update `wNbLinesRemaining`!
+wPrinterHeadPtr::
 	dw
-wTextSrcBank:
+
+; Textbox rectangle specification.
+wTextbox:
+	.origin:: dw
+	.width::  db ; In tiles.
+	.height:: db ; In tiles.
+
+
+; Variables used by the "lookahead". Most are shadows of real variables.
+wLookahead:
+	.fontID    db ; Shadow of `wCurFont.id`.
+	.fontPtr   dw ; Shadow of `wCurFont.
+	.stackLen  db ; Shadow of `wSourceStack.len`.
+	.nbTilesRemaining  db ; However many tiles can still be flushed in this line.
+	.nbPixelsRemaining db ; Working memory for the lookahead.
+
+; How many lines of the textbox haven't been fully written yet.
+; Serves as a cache, instead of constantly re-computing from `wPrinterHeadPtr`.
+wNbLinesRemaining:: ; Not strictly a lookahead variable, but it's thematically coherent.
+	db
+; How many lines the user has already acknowledged by "waiting".
+; The engine decrements this every time a new line is printed, and sets the "waiting" flag when it
+; reaches 0; however, **it does NOT reload it afterwards**!
+; It is intended that whatever clears the "waiting" flag *also* reloads this.
+wNbLinesRead::
 	db
 
-; Number of frames between each character
-wTextLetterDelay::
-	db
-; Number of frames till next character
-wTextNextLetterDelay::
-	db
-
-; Bit 6 - Whether the text engine is currently waiting for a button press
-; Bit 7 - Whether the text engine is halted, for syncing (can be reset)
-wTextFlags::
-	db
-
-; Number of tiles flushed, used to know how many tiles should be written to the tilemap
-wFlushedTiles::
-	db
-
-; Number of newlines that occurred during this print
-wNbNewlines::
-	db
-; ID of the tiles during which newlines occurred (NOTE: there can be duplicates due to empty lines!!)
-wNewlineTiles::
-	ds TEXT_NEWLINE_CAPACITY
-
-wPenStartingPosition::
-	dw
-wPenPosition::
-	dw
-wPenCurTile::
-	db
-
-; Low byte of the read ptr into wTextCharBuffer
-wTextReadPtrLow::
-	db
-; Where the refiller ended, i.e. where the printer needs to stop
-wTextReadPtrEnd::
-	db
-; Where the refiller's read ended; characters between the above and this may be candidate for an
-; auto linebreak, so they shouldn't be passed to the printer yet
-wTextFillPtrEnd::
-	db
-
-; Number of lines of the current text area
-wTextNbLines::
-	db
-; How many newlines remain before the text box is full
-wTextRemainingLines::
-	db
-; How many newlines remain until the text box has been filled with fresh text
-wNewlinesUntilFull::
-	db
-; Length, in pixels, of the current text line
-wTextLineLength::
-	db
-wLineRemainingPixels::
-	db
-; Ptr to last newlineable location
-wNewlinePtrLow::
-	db
-; wLineRemainingPixels at the time wNewlinePtrLow is updated
-wPixelsRemainingAtNewline::
-	db
-; Charset ptr is cached by refiller to speed up reads
-wCurCharsetPtr::
-	dw
-wRefillerCharset::
-	db
-wRefillerPrevFont::
-	db
-wRefillerPrevVariant::
-	db
 
 SECTION "VWF engine fast memory", HRAM
 
-; How many rows are left to be drawn in the current tile
-hVWFRowCount::
+hCurChar: ; Temporary storage during the drawing phase.
 	db
+
+hNbPixelsDrawn: ; Temporary storage to allow reverting a char's printing.
+	db
+
+POPS
+POPO

@@ -23,6 +23,7 @@ with Image.open(argv[1]) as img:
     for ty in range(0, height - 1, CHARACTER_HEIGHT):
         for tx in range(0, width, CHARACTER_WIDTH):
             size = 0
+            tile = []
             for y in range(ty + 1, ty + 1 + CHARACTER_HEIGHT):
                 byte = 0
                 size = CHARACTER_WIDTH
@@ -37,8 +38,9 @@ with Image.open(argv[1]) as img:
                         print(f"WARNING: pixel at (x:{x}, y:{y}) is none of the 3 font pixels; treating as blank. Note: only monochrome fonts are supported!", file=stderr)
                 if byte & (1 << (CHARACTER_WIDTH - 8) - 1):
                     raise ValueError(f"Row at (x:{tx}, y:{y}): only the first 8 pixels of a character can be non-blank!")
-                data.append(byte >> (CHARACTER_WIDTH - 8))
-            data.append(size)
+                tile.append(byte >> (CHARACTER_WIDTH - 8))
+            tile[0] |= size
+            data.extend(tile)
 
 with open(argv[2], "wb") as output:
     output.write(bytes(data))
