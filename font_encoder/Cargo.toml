@@ -1,0 +1,9 @@
+[package]
+name = "font_encoder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+plumers = { version = "1.0.0", path = "../../../../plumers/plumers" }
+slicedisplay = "0.2.2"
+xflags = "0.3.2"
