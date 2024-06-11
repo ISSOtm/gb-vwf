@@ -170,7 +170,7 @@ ENDC
 
 
 ; Number of elements the text stack has room for.
-; This must not exceeed $7F, as the return logic discards bit 7 when checking for zero.
+; This must not exceed $7F, as the return logic discards bit 7 when checking for zero.
 IF !DEF(STACK_CAPACITY)
 	def STACK_CAPACITY equ 8
 ENDC
