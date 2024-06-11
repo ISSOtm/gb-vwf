@@ -147,9 +147,11 @@ ENDC
 
 
 ; Number of elements the text stack has room for.
-; This must not exceed $7F, as the return logic discards bit 7 when checking for zero.
 IF !DEF(STACK_CAPACITY)
 	def STACK_CAPACITY equ 8
+ELIF STACK_CAPACITY & $80
+	; This must not have bit 7 set, as the return logic discards bit 7 when checking for zero.
+	FAIL "Stack capacity ({STACK_CAPACITY}) may not have bit 7 set!"
 ENDC
 
 ; Do **NOT** print more than this amount of newlines in a single call to `PrintVWFChars`!
@@ -797,7 +799,7 @@ ShouldBreakLine:
 	jr c, .controlChar
 	; A space is breakable, so we wouldn't need to break before it.
 	IF " " == 0
-		and a
+		; `add a, a` before already updated the Z flag.
 	ELSE
 		cp " " << 1
 	ENDC
@@ -883,6 +885,7 @@ ShouldBreakLine:
 	ld hl, wLookahead.stackLen
 	ld a, [hl]
 	add a, a ; Check if we went through a "one-way call"; if so, we can't return.
+	dbg_action ShouldBreakLine, "message \"Warning: unable to determine line length (\{@a / 2\} entries left, '<END>' at \{&(@de - 1),$\}:\{@de - 1,4$\})\"", @cf
 	jr c, .returnShouldntBreak ; We want to return Z, but we don't know Z's value right now.
 	dec [hl] ; Decrement the stack length.
 	jr z, .return ; We wouldn't overflow before the text stream ends, and Z is set.
@@ -905,7 +908,7 @@ ShouldBreakLine:
 	ld c, a
 	db $C4 ; call nz, <imm16>, skipping the following `set 7, [hl]`.
 .oneWayCall
-	runtime_assert ShouldBreakLine, @hl == wLookahead.stackLen, "gb-vwf encountered an internal error!"
+	runtime_assert ShouldBreakLine, (@pc != ShouldBreakLine.oneWayCall) || (@hl == wLookahead.stackLen), "Internal bug: mispointed `hl`"
 	set 7, [hl] ; Set the "one-way" flag.
 	; Jump to the callee.
 	ld a, [de]
