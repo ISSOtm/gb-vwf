@@ -905,6 +905,7 @@ ShouldBreakLine:
 	ld c, a
 	db $C4 ; call nz, <imm16>, skipping the following `set 7, [hl]`.
 .oneWayCall
+	runtime_assert ShouldBreakLine, @hl == wLookahead.stackLen, "gb-vwf encountered an internal error!"
 	set 7, [hl] ; Set the "one-way" flag.
 	; Jump to the callee.
 	ld a, [de]
@@ -977,6 +978,7 @@ ShouldBreakLine:
 	cp [hl]
 	jr nc, .oneWayCall ; Can't return from this one.
 	; Compute the pointer to the new entry.
+	ld a, [hl]
 	add a, a
 	add a, LOW(wSourceStack.entries - 2)
 	ld l, a
