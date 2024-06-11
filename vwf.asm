@@ -487,15 +487,19 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 
 	; Read by how much the glyph's pixels will need to be shifted right.
 	ld a, [wNbPixelsDrawn]
+	runtime_assert TickVWFEngine, @a < 8, "A glyph should never be drawn with a full buffer!"
 	ldh [hNbPixelsDrawn], a
 	ld e, a
+	; Compute the pointer to the appropriate shift table.
+	assert HIGH(ShiftLUT) & %111 == 0, "Barrel shift LUT is improperly aligned!"
+	or HIGH(ShiftLUT)
+	ld d, a ; Prepare to index into this table a whole lot.
 	; Increase that by the glyph's width.
 	ld a, [hl] ; The width is stored in the 3 lower bits of the first byte.
 	and %111
+	runtime_assert TickVWFEngine, @a <= 8, "Glyphs can only be up to 8 pixels wide!"
 	add a, e
 	ld [wNbPixelsDrawn], a
-
-	ld d, HIGH(ShiftLUT) ; Prepare to index this table a whole lot.
 
 	; Draw the high bitplane if and only if its bit is set in wFlags.
 	; This is done in a separate loop to reduce the overhead incurred by checking the bit.
@@ -506,20 +510,18 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld hl, wTileBuffer + 2
 .drawHighBitplane
 	ld a, [bc]
-	inc bc
-	xor e ; Set the upper 5 bits to the row of pixels; the lower 3 are already the shift amount.
 	and $F8
-	xor e
+	runtime_assert TickVWFEngine, (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
+	inc bc
 	assert LOW(ShiftLUT) == 0
-	ld e, a ; That Frankenstein mix is designed to work as an index into ShiftLUT.
-	ld a, [de] ; ...so these are the shifted pixels for the first tile.
+	ld e, a
+	ld a, [de] ; These are the shifted pixels for the first tile.
 	or [hl]
 	ld [hli], a
-	inc d ; Switch to the second table.
+	inc e ; Switch to the second byte.
 	ld a, [de] ; Read the shifted pixels for the second tile.
 	or [hl]
 	ld [hli], a
-	dec d ; Go back to the first table.
 	assert HIGH(wTileBuffer) == HIGH(wTileBuffer.end - 1)
 	inc l ; Skip the other bitplane.
 	inc l ;   (2 bytes.)
@@ -534,20 +536,18 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld hl, wTileBuffer
 .drawLowBitplane
 	ld a, [bc]
-	inc bc
-	xor e ; Set the upper 5 bits to the row of pixels; the lower 3 are already the shift amount.
 	and $F8
-	xor e
+	runtime_assert TickVWFEngine, (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
+	inc bc
 	assert LOW(ShiftLUT) == 0
-	ld e, a ; That Frankenstein mix is designed to work as an index into ShiftLUT.
-	ld a, [de] ; ...so these are the shifted pixels for the first tile.
+	ld e, a
+	ld a, [de] ; These are the shifted pixels for the first tile.
 	or [hl]
 	ld [hli], a
-	inc d ; Switch to the second table.
+	inc e ; Switch to the second byte.
 	ld a, [de] ; Read the shifted pixels for the second tile.
 	or [hl]
 	ld [hli], a
-	dec d ; Go back to the first table.
 	assert HIGH(wTileBuffer) == HIGH(wTileBuffer.end - 1)
 	inc l ; Skip the other bitplane.
 	inc l ;   (2 bytes.)
@@ -1015,6 +1015,7 @@ PrintVWFChars::
 	ld a, [wNbPixelsDrawn]
 	sub 8
 	jr c, .noNeedToFlush
+	runtime_assert PrintVWFChars, @a < 8, "Tile buffer would need double-flushing! (\{@a,2$\} pixels remaining after flush)"
 	ld [wNbPixelsDrawn], a
 
 	; Decrement the count for the lookahead.
@@ -1241,17 +1242,16 @@ PUSHS
 
 SECTION FRAGMENT "VWF fonts and barrel shift table", ROMX
 
-; 512 bytes to (barrel-)shift 5 bits across two bytes. Seems like a fair tradeoff?
-ShiftLUT: align 8
-	FOR i, 0, 256
-		def pixels = i & $F8
-		def shift_amt = i & $07
-		db pixels >> shift_amt
-	ENDR
-	FOR i, 0, 256
-		def pixels = i & $F8
-		def shift_amt = i & $07
-		db LOW((pixels << 8) >> shift_amt)
+; 2048 ($800) bytes to (barrel-)shift 7 bits across two bytes.
+; Considering it *massively* speeds up char plotting, and significantly reduces reg pressure
+; leading to leaner code in ROM0, seems like a fair tradeoff?
+ShiftLUT:
+	FOR shift_amt, 8
+		align 8 + 3, shift_amt << 8 ; `shift_amt` is encoded in the low 3 bits of the addr's high byte.
+		FOR pixels, $80
+			db HIGH((pixels << 9) >> shift_amt)
+			db  LOW((pixels << 9) >> shift_amt)
+		ENDR
 	ENDR
 
 
