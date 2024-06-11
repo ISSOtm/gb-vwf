@@ -804,6 +804,7 @@ ShouldBreakLine:
 		cp " " << 1
 	ENDC
 	jr z, .return
+.pretendCharRead
 	ld c, a ; Remember the glyph ID for later.
 	; Compute the pointer to the glyph's width.
 	; The widths are stored right before the font pointer.
@@ -914,30 +915,17 @@ ShouldBreakLine:
 	ld a, [de]
 	ld d, a
 	ld e, c
-	jp .readInputChar ; TODO: too far to `jr` :(
+	jr .readInputChar
 
 .zws
 	; A ZWS is breakable, but prints a hyphen when broken at.
-	; If there aren't enough pixels to do that, we will have to break now!
+	; If there aren't enough pixels to print one, we will have to break now!
 	; (Note: this would be suboptimal if the character *after* was breakable, but it seems
 	; preferable to assume that whoever writes the text is reasonable, for performance's sake.)
-	; Get the current font's hyphen width.
-	ld a, [wLookahead.fontPtr]
-	add a, LOW("-" * 8) ; Font offset computed at compile time :)
-	ld l, a
-	ld a, [wLookahead.fontPtr + 1]
-	adc a, HIGH("-" * 8)
-	ld h, a
-	ld a, [hl]
-	and %111
-	ld l, a
-	; Check if enough pixels remain.
-	ld a, [wLookahead.nbPixelsRemaining]
-	sub l
-	jr c, .return ; If there aren't enough pixels, return with NZ (zero doesn't generate a carry).
-	; Otherwise, return that we don't need to break now, as there will be enough room to break at the ZWS
-	; (should the check that will be performed when handling it fail).
-	jr .returnShouldntBreak
+	; If there *are* enough pixels to print that hyphen, then we can avoid line-wrapping right now,
+	; since we'll have another occasion when the "printer" reaches it.
+	ld a, "-" * 2 ; Pretend that we are a hyphen.
+	jr .pretendCharRead
 
 .setFont
 	ld hl, wLookahead.fontID
