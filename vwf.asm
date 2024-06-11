@@ -622,13 +622,14 @@ Newline:
 	set TEXTB_SCROLL, [hl]
 .noNeedToScroll
 
-	; Force flushing of the current tile (unless it's blank).
+	; Force flushing of the current tile...
 	ld hl, wNbPixelsDrawn
 	ld a, [hl]
 	cp 2
-	jr c, .curTileIsBlank
-	ld a, 8
-.curTileIsBlank
+	jr c, .noForcingFlush ; ..unless it's blank.
+	and 8 ; If there is already a complete tile,
+	add a, 8 ; then we will flush two.
+.noForcingFlush
 	ld [hli], a
 	assert wNbPixelsDrawn + 1 == wFlags
 	set TEXTB_NEWLINE, [hl]
@@ -1005,7 +1006,8 @@ PrintVWFChars::
 	ld a, [wNbPixelsDrawn]
 	sub 8
 	jr c, .noNeedToFlush
-	runtime_assert PrintVWFChars, @a < 8, "Tile buffer would need double-flushing! (\{@a,2$\} pixels remaining after flush)"
+	runtime_assert PrintVWFChars, @a < 16, "Tile buffer would need triple-flushing! (\{@a - 8,2$\} pixels remaining after flush)"
+.flushAgain
 	ld [wNbPixelsDrawn], a
 
 	; Decrement the count for the lookahead.
@@ -1067,6 +1069,11 @@ PrintVWFChars::
 	ld [wPrinterHeadPtr], a
 	ld a, h
 	ld [wPrinterHeadPtr + 1], a
+	; It is possible for a "double flush" to happen if an auto-newline triggers right as a hyphen
+	; spans two tiles.
+	ld a, [wNbPixelsDrawn]
+	sub 8
+	jr nc, .flushAgain
 .noNeedToFlush
 
 	ld a, [wFlags]
