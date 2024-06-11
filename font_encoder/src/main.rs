@@ -1,10 +1,16 @@
-use std::{fmt::Display, fs::File, io::Write, path::PathBuf, process::ExitCode};
+use std::{
+    fmt::Display,
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use plumers::prelude::*;
 use slicedisplay::SliceDisplay;
 
 fn main() -> ExitCode {
-    let args = xflags::parse_or_exit! {
+    let mut args = xflags::parse_or_exit! {
         /// Font image file to process
         required input_path: PathBuf
         /// Path to write the encoded font to
@@ -70,6 +76,8 @@ Error: the input image must only contain black, white, and a \"filler\" colour
     let charset = extract_charset(&img);
 
     output_charset(&args.output_path, &charset);
+    args.output_path.set_extension("vwflen");
+    output_charset_len(&args.output_path, &charset);
 
     ExitCode::SUCCESS
 }
@@ -152,7 +160,7 @@ Error: the input image is malformed
     glyphs
 }
 
-fn output_charset(path: &PathBuf, charset: &[Glyph]) {
+fn output_charset(path: &Path, charset: &[Glyph]) {
     let mut file = File::create(path).unwrap_or_else(|err| {
         eprintln!(
             "Error: failed to create output file \"{}\": {err}",
@@ -162,15 +170,34 @@ fn output_charset(path: &PathBuf, charset: &[Glyph]) {
     });
 
     for glyph in charset {
-        let mut buf = glyph.pixels;
-        buf[0] |= glyph.width;
-        file.write_all(&buf).unwrap_or_else(|err| {
+        file.write_all(&glyph.pixels).unwrap_or_else(|err| {
             eprintln!(
                 "Error: failed to write to output file \"{}\": {err}",
                 path.display()
             );
             std::process::exit(1);
         })
+    }
+}
+
+fn output_charset_len(path: &Path, charset: &[Glyph]) {
+    let mut file = File::create(path).unwrap_or_else(|err| {
+        eprintln!(
+            "Error: failed to create output file \"{}\": {err}",
+            path.display()
+        );
+        std::process::exit(1);
+    });
+
+    for glyph in charset.iter().rev() {
+        file.write_all(std::array::from_ref(&glyph.width))
+            .unwrap_or_else(|err| {
+                eprintln!(
+                    "Error: failed to write to output file \"{}\": {err}",
+                    path.display()
+                );
+                std::process::exit(1);
+            });
     }
 }
 

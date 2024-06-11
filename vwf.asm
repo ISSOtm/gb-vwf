@@ -450,14 +450,21 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld c, [hl]
 	inc hl
 	ld b, [hl]
-	; Index into the table of glyphs, which are 8 bytes each.
+	; Compute the pointer to the glyph's pixels. Each entry is 8 bytes long.
 	ld l, a ; Char ID * 2
 	ld h, 0
 	add hl, hl ; Char ID * 4
 	add hl, hl ; Char ID * 8
 	add hl, bc ; Char ID * 8 + font ptr, i.e. `font->glyphs[char_id]` in C terms.
-	ld b, h ; We will only be reading from this into `a`, so it's fine.
-	ld c, l
+	; Compute the pointer to the glyph's width.
+	; The widths are stored right before the font pointer.
+	rrca ; The char ID was doubled, so this gets it back.
+	cpl ; Negate, and subtract 1.
+	add a, c ; LOW(base pointer)
+	ld c, a
+	ld a, $FF
+	adc a, b ; HIGH(base pointer)
+	ld b, a
 
 	ld a, BANK("VWF fonts and barrel shift table")
 	switch_rom_bank
@@ -472,11 +479,15 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	or HIGH(ShiftLUT)
 	ld d, a ; Prepare to index into this table a whole lot.
 	; Increase that by the glyph's width.
-	ld a, [hl] ; The width is stored in the 3 lower bits of the first byte.
-	and %111
+	ld a, [bc]
 	runtime_assert TickVWFEngine, @a <= 8, "Glyphs can only be up to 8 pixels wide!"
 	add a, e
 	ld [wNbPixelsDrawn], a
+
+	; Transfer the glyph data pointer from `hl` to `bc`.
+	; We will only be reading from it into `a`, so it's fine.
+	ld b, h
+	ld c, l
 
 	; Draw the high bitplane if and only if its bit is set in wFlags.
 	; This is done in a separate loop to reduce the overhead incurred by checking the bit.
@@ -487,7 +498,6 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld hl, wTileBuffer + 2
 .drawHighBitplane
 	ld a, [bc]
-	and $F8
 	runtime_assert TickVWFEngine, (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
 	inc bc
 	assert LOW(ShiftLUT) == 0
@@ -794,22 +804,20 @@ ShouldBreakLine:
 	jr z, .return
 	ld c, a ; Remember the glyph ID for later.
 	; Compute the pointer to the glyph's width.
+	; The widths are stored right before the font pointer.
+	rrca ; The char ID was doubled, so this gets it back.
+	cpl ; Negate, and subtract 1.
 	ld l, a
-	ld h, 0
-	add hl, hl ; × 4
-	add hl, hl ; × 8
 	ld a, [wLookahead.fontPtr]
 	add a, l
 	ld l, a
 	ld a, [wLookahead.fontPtr + 1]
-	adc a, h
+	adc a, $FF
 	ld h, a
 	; Read the glyph's width, which is in a different bank (and restore the bank right after).
 	ld a, BANK("VWF fonts and barrel shift table")
 	switch_rom_bank
-	ld a, [hl] ; The length is in the bottom 3 bits of the first byte.
-	and %111
-	ld l, a
+	ld l, [hl]
 	ld a, [wSourceBank]
 	switch_rom_bank
 	; Subtract the glyph's length from the remaining pixels.
