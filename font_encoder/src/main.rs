@@ -96,6 +96,7 @@ struct Glyph {
 fn extract_charset(img: &PalettedImage16) -> Vec<Glyph> {
     let frame = img.frame(0);
 
+    let mut bad_width = false;
     let mut glyphs = Vec::new();
     for glyph_y in 0..img.height() / 8 {
         let y = glyph_y * 8;
@@ -127,15 +128,30 @@ Error: the input image is malformed
 
                 x += 1;
                 mask >>= 1;
+
+                // Break up overlong characters.
+                // They will trigger the overflow error below, anyway.
+                if mask == 0 {
+                    break;
+                }
             }
 
-            glyphs.push(Glyph {
+            let glyph = Glyph {
                 // The last column of all glyphs is white, so add one extra to the width.
                 // That assumption is made throughout the engine.
                 width: mask.leading_zeros() as u8 + 1,
                 pixels,
-            });
-            // TODO: check that the glyph has an acceptable width
+            };
+            if glyph.width > 8 {
+                eprintln!(
+                    "Error: the {} glyph (x: {:<3}, y: {y:<3}) is {} pixels wide",
+                    Nth(glyphs.len() + 1),
+                    x - usize::from(glyph.width - 1),
+                    glyph.width
+                );
+                bad_width = true;
+            }
+            glyphs.push(glyph);
 
             // Skip any columns of filler.
             while x < img.width() && frame[(x, y)] == FILLER_PIXEL {
@@ -155,6 +171,14 @@ Error: the input image is malformed
                 x += 1;
             }
         }
+    }
+
+    if bad_width {
+        eprintln!(
+            "Note: Glyphs can only be up to 8 pixels wide,
+      *including* the extra blank column between characters"
+        );
+        std::process::exit(1);
     }
 
     glyphs
