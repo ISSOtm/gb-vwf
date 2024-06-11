@@ -558,6 +558,8 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	jr z, AfterBreakableChar
 	IF "-" == 0
 		and a
+	ELIF "-" == 1
+		dec a
 	ELSE
 		cp "-" * 2
 	ENDC
@@ -832,6 +834,8 @@ ShouldBreakLine:
 	ld a, c
 	IF "-" == 0
 		and a
+	ELIF "-" == 1
+		dec a
 	ELSE
 		cp "-" << 1
 	ENDC
