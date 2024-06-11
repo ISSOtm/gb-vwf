@@ -49,15 +49,13 @@ MACRO chars
 ENDM
 
 def font_id = 0
-def font_ptrs equs ""
-def font_data equs ""
 MACRO font
 	def \1 equ font_id
 	EXPORT \1
-	def font_id += 1
-	redef font_ptrs equs "{font_ptrs}\ndw Font\1Ptr"
-	redef font_data equs "{font_data}\nFont\1Ptr:INCBIN \2"
+	def font{x:font_id}_ptr equs "Font\1Ptr"
+	def font{x:font_id}_data equs "INCBIN \"\2len\"\nFont\1Ptr:INCBIN \"\2\""
 	; TODO: when RGBASM adds multi-byte charmap support, provide short-hand charmaps that emit the control code and the index
+	def font_id += 1
 ENDM
 
 ; Macros required by the above.
@@ -1228,7 +1226,9 @@ PrintVWFChars::
 
 
 FontPtrTable:
-	font_ptrs
+	FOR I, font_id
+		dw {font{x:I}_ptr}
+	ENDR
 
 ControlChars:
 	ctrl_char_ptrs
@@ -1255,7 +1255,9 @@ ShiftLUT:
 	ENDR
 
 
-	font_data
+	FOR I, font_id
+		{font{x:I}_data}
+	ENDR
 
 
 SECTION "VWF engine memory", WRAM0
