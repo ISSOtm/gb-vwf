@@ -965,7 +965,7 @@ ShouldBreakLine:
 	jr .updateFontPtr
 
 .call
-	runtime_assert ShouldBreakLine, [wLookahead.stackLen] < STACK_CAPACITY, "VWF stack overflow during lookahead! (Please reduce your text call depth, or increase STACK_CAPACITY.)"
+	runtime_assert ShouldBreakLine, [wLookahead.stackLen] < {STACK_CAPACITY}, "VWF stack overflow during lookahead! (Please reduce your text call depth, or increase STACK_CAPACITY.)"
 	ld hl, wLookahead.stackLen
 	inc [hl] ; Increment the stack depth.
 	; Read the first byte of the new pointer, since we have to do that on all code paths.
