@@ -525,7 +525,6 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld hl, wTileBuffer
 .drawLowBitplane
 	ld a, [bc]
-	and $F8
 	runtime_assert TickVWFEngine, (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
 	inc bc
 	assert LOW(ShiftLUT) == 0
