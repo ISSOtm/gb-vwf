@@ -672,25 +672,22 @@ TextCall:
 	runtime_assert TextCall, [wSourceStack.len] <= {STACK_CAPACITY}, "VWF stack overflow! (Please reduce your text call depth, or increase STACK_CAPACITY)."
 
 	ld hl, wSourceStack.len
-	inc [hl]
 	ld a, [hl] ; Not decrementing means that we'll point at the entry's second byte.
+	inc [hl]
 	add a, a ; Each entry is 2 bytes.
 	add a, l
 	ld l, a
 	adc a, h
 	sub l
 	ld h, a
-	; Write the new entry. (Stack entries are big-endian, but we're writing it backwards!)
+	; Read the new source pointer.
 	; Note that we do this before writing back the current entry, because the "return pointer"
 	; still needs to advance to read the operand.
-	; TODO: wait, why write it to the stack now? Isn't setting `de` enough?
 	ld a, [de]
 	inc de
-	ld [hld], a
 	ld c, a ; Cache this to avoid re-reading the entry we're writing.
 	ld a, [de]
 	inc de
-	ld [hld], a
 	; Write back the pointer to "return" to. Note that `a` is preserved throughout.
 	ld [hl], e
 	dec hl
