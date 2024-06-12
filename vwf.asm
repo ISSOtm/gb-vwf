@@ -730,6 +730,7 @@ SetFont:
 	; Refresh the cached font pointer.
 	assert wCurFont.id + 1 == wCurFont.ptr
 	add a, a ; Font table entries are 2 bytes each.
+	assert font_id <= 128, "There can only be up to 128 fonts!"
 	add a, LOW(FontPtrTable)
 	ld c, a
 	adc a, HIGH(FontPtrTable)
