@@ -21,7 +21,6 @@ Open a pull request, or get in touch!
 
 ## Known bugs
 
-- Glyphs wider than 5 pixels are truncated, and might cause rendering errors.
 - If the “textbox” touches the right edge of the tilemap, newlines may occasionally skip one row of tiles.
 
 ## How to use
@@ -32,7 +31,9 @@ Bugs can be reported on [the issue tracker](https://github.com/ISSOtm/gb-vwf/iss
 
 ## Licensing
 
-The VWF engine itself is licensed under the MIT license; the example program is public domain, assets included.
+The VWF engine itself is licensed under the MPL 2.0.
 
-According to US law, fonts cannot be copyrighted.
+> **In a nutshell**: if and only if you modify gb-vwf, you must provide your modified `vwf.asm` to anyone who got a compiled version of it and asks for it.
+
+According to US law at least, bitmap fonts cannot be copyrighted.
 You can find some [here](https://github.com/pinobatch/bitmap-fonts/tree/master/vwf).
