@@ -207,8 +207,9 @@ MACRO flag
 ENDM
 	flag 7, WAITING ; If set, the engine will not process ticks.
 	flag 6, SYNC ; Set by the "<SYNC>" control char, otherwise ignored.
-	flag 2, SCROLL ; Internal. If this is set, the textbox will be scrolled upwards (unless WAITING is set).
-	flag 1, NEWLINE ; Internal. If set, the next character flush will move to the next line.
+	flag 3, NONBLANK ; INTERNAL. If this is clear, newlines don't count against `wNbLinesRead`.
+	flag 2, SCROLL ; INTERNAL. If this is set, the textbox will be scrolled upwards (unless WAITING is set).
+	flag 1, NEWLINE ; INTERNAL. If set, the next character flush will move to the next line.
 	flag 0, COLOR ; If set, color #1 will be emitted instead of #3. Changed by "<COLOR>".
 
 
@@ -543,6 +544,10 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	bit 5, l ; TODO: there may be potential to use one of the `inc l`s instead of this, using greater alignment
 	jr z, .drawLowBitplane
 
+	; Count this line and subsequent ones against `wNbLinesRead`.
+	ld hl, wFlags
+	set TEXTB_NONBLANK, [hl]
+
 	pop de ; Restore the read pointer.
 	; Restore the source ROM bank also. This must be done now for the potential jump to `Newline`.
 	ld a, [wSourceBank]
@@ -635,6 +640,9 @@ Newline:
 	set TEXTB_NEWLINE, [hl]
 
 	; Avoid scrolling text off-screen that the user hasn't had a chance to "acknowledge" yet.
+	; hl == wFlags
+	bit TEXTB_NONBLANK, [hl]
+	jr z, TickVWFEngine.doneProcessingChars
 	ld hl, wNbLinesRead
 	dec [hl]
 	jr nz, TickVWFEngine.doneProcessingChars
@@ -1061,9 +1069,19 @@ PrintVWFChars::
 	ld a, [wNbPixelsDrawn]
 	sub 8
 	jr nc, .flushAgain
+
 .noNeedToFlush
 
-	ld a, [wFlags]
+	ld hl, wFlags
+	; If currently waiting, don't count subsequent blank lines against `wNbLinesRead`.
+	bit TEXTB_WAITING, [hl]
+	jr z, .notWaiting
+	res TEXTB_NONBLANK, [hl]
+	ld a, [wTextbox.height]
+	ld [wNbLinesRead], a
+.notWaiting
+
+	ld a, [hl] ; hl == wFlags
 	bit TEXTB_NEWLINE, a
 	jr z, .noNewline
 	res TEXTB_NEWLINE, a
