@@ -107,10 +107,34 @@ fn extract_charset(img: &PalettedImage16) -> Vec<Glyph> {
         let y = glyph_y * 8;
 
         let mut x = 0;
-        while x < img.width() {
+        'row: loop {
+            // Skip any columns of filler.
+            loop {
+                if x == img.width() {
+                    break 'row;
+                }
+
+                if frame[(x, y)] != FILLER_PIXEL {
+                    break;
+                }
+                // Ensure that they are proper *columns* of filler.
+                for dy in 1..8 {
+                    if frame[(x, y + dy)] != FILLER_PIXEL {
+                        eprintln!(
+                            "\
+Error: the input image is malformed
+       Saw a filler pixel at ({x}, {y}), but then a non-filler pixel at ({x}, {})",
+                            y + dy
+                        );
+                        std::process::exit(1);
+                    }
+                }
+
+                x += 1;
+            }
+
             let mut pixels = [0; 8];
             let mut mask = 0x80u8;
-
             // While we haven't reached the left edge of the image, and we are looking at an "on" or "off" pixel...
             while x < img.width() && frame[(x, y)] != FILLER_PIXEL {
                 // Process one column of the glyph.
@@ -157,24 +181,6 @@ Error: the input image is malformed
                 bad_width = true;
             }
             glyphs.push(glyph);
-
-            // Skip any columns of filler.
-            while x < img.width() && frame[(x, y)] == FILLER_PIXEL {
-                // Ensure that they are proper *columns* of filler.
-                for dy in 1..8 {
-                    if frame[(x, y + dy)] != FILLER_PIXEL {
-                        eprintln!(
-                            "\
-Error: the input image is malformed
-       Saw a filler pixel at ({x}, {y}), but then a non-filler pixel at ({x}, {})",
-                            y + dy
-                        );
-                        std::process::exit(1);
-                    }
-                }
-
-                x += 1;
-            }
         }
     }
 
