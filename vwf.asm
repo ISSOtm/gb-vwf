@@ -1,4 +1,3 @@
-
 ; This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 ; If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
@@ -101,7 +100,7 @@ MACRO control_char ; <name>, [!]<handler ptr> [, <arg>... ]
 	ENDC
 
 	redef ctrl_char_ptrs equs "dw {char_name}\n{ctrl_char_ptrs}"
-	IF NB_VWF_CTRL_CHARS > NB_SPECIAL_CTRL_CHARS
+	IF def(NB_SPECIAL_CTRL_CHARS) ; Special control chars (defined before that var) do not store their length.
 		redef ctrl_char_lens equs "db {nb_operand_bytes}\n{ctrl_char_lens}"
 	ENDC
 
@@ -115,13 +114,13 @@ ENDM
 
 ; Define the built-in control chars first, as their numeric values are important to the engine.
 
-	def NB_SPECIAL_CTRL_CHARS equ 6 ; All of the special chars must be contiguous!
 	control_char END,           TextReturn
-	control_char CALL,          TextCall
-	control_char JUMP,          TextJumpTo
-	control_char SET_FONT,      SetFont
-	control_char SET_VARIANT,   SetVariant
+	control_char CALL,          TextCall,        low=%X,high=%X
+	control_char JUMP,          TextJumpTo,      low=%X,high=%X
+	control_char SET_FONT,      SetFont,         font=%D
+	control_char SET_VARIANT,   SetVariant,      variant=%D
 	control_char ZWS,           SoftHyphen ; "Zero-Width Space"
+	def NB_SPECIAL_CTRL_CHARS equ NB_VWF_CTRL_CHARS ; All of the special chars must be above this!
 	control_char NEWLINE,       !Newline
 	control_char SET_COLOR,     SetColor,        color=%D
 	control_char DELAY,         DelayNextChar,   nb_frames=%D
