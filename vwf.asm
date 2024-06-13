@@ -278,6 +278,7 @@ ENDC
 	def VWF_NEW_STR  equ 1
 	EXPORT VWF_CONT_STR, VWF_NEW_STR
 ; @return a: 1
+; @destroy b hl
 SetupVWFEngine::
 	and a ; Setting Z for the jump further below.
 
@@ -295,10 +296,10 @@ SetupVWFEngine::
 	jr c, .curTileIsBlank
 	; We must increment the tile ID, since we're about to begin a new tile.
 	ld a, [wCurTileID.max]
-	ld c, a
+	ld b, a
 	ld a, [wCurTileID]
 	inc a
-	cp c
+	cp b
 	jr nz, .noIDWrap
 	ld a, [wCurTileID.min]
 .noIDWrap
@@ -306,11 +307,11 @@ SetupVWFEngine::
 .curTileIsBlank
 	; Clear the tile buffer to start afresh.
 	assert wTileBuffer.end == wNbPixelsDrawn
-	ld c, wTileBuffer.end - wTileBuffer + 1
+	ld b, wTileBuffer.end - wTileBuffer + 1
 	xor a
 .resetTileBuffer
 	ld [hld], a
-	dec c
+	dec b
 	jr nz, .resetTileBuffer
 	; Reset some more variables.
 	; a = 0
@@ -324,13 +325,13 @@ SetupVWFEngine::
 	ld hl, wTextbox.origin
 	ld a, [wPrinterHeadPtr]
 	sub [hl]
-	ld c, a
+	ld b, a
 	inc hl
 	ld a, [wPrinterHeadPtr + 1]
 	sbc a, [hl]
-	xor c
+	xor b
 	and $1F
-	xor c
+	xor b
 	rlca
 	rlca
 	rlca
