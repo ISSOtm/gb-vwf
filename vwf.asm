@@ -274,8 +274,8 @@ ENDC
 ; @param a:  Whether to flush the current string (either of the constants below).
 ;            Use `VWF_CONT_STR` if you want to keep printing to the same string you previously were.
 ;            Note that `VWF_NEW_STR` causes the auto-linewrapper to assume a new line is being started.
-	def VWF_CONT_STR equ 0
-	def VWF_NEW_STR  equ 1
+	def VWF_NEW_STR  equ 0
+	def VWF_CONT_STR equ 1
 	EXPORT VWF_CONT_STR, VWF_NEW_STR
 ; @return a: 1
 ; @destroy b hl
@@ -289,7 +289,7 @@ SetupVWFEngine::
 	ld a, l
 	ld [wSourceStack.entries + 1], a
 
-	jr z, .continuingString
+	jr nz, .continuingString
 	ld hl, wNbPixelsDrawn
 	ld a, [hl]
 	cp 2
