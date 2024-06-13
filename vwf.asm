@@ -288,12 +288,14 @@ SetupVWFEngine::
 	ld [wSourceStack.entries], a
 	ld a, l
 	ld [wSourceStack.entries + 1], a
+	ld a, 1
+	ld [wSourceStack.len], a
 
 	jr nz, .continuingString
 	ld hl, wNbPixelsDrawn
 	ld a, [hl]
 	cp 2
-	jr c, .curTileIsBlank
+	ret c
 	; We must increment the tile ID, since we're about to begin a new tile.
 	ld a, [wCurTileID.max]
 	ld b, a
@@ -339,10 +341,6 @@ SetupVWFEngine::
 	ld a, [wTextbox.height]
 	sub b
 	ld [wNbLinesRemaining], a
-.continuingString
-
-	ld a, 1
-	ld [wSourceStack.len], a
 	ret
 
 
