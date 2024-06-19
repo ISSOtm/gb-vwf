@@ -291,11 +291,12 @@ SetupVWFEngine::
 	ld a, 1
 	ld [wSourceStack.len], a
 
-	jr nz, .continuingString
+	ret nz
+
 	ld hl, wNbPixelsDrawn
 	ld a, [hl]
 	cp 2
-	ret c
+	jr c, .curTileIsBlank
 	; We must increment the tile ID, since we're about to begin a new tile.
 	ld a, [wCurTileID.max]
 	ld b, a
