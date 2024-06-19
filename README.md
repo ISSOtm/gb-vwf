@@ -6,10 +6,16 @@ A Variable-Width Font library for the Game Boy & Game Boy Color.
 
 https://user-images.githubusercontent.com/15271137/172129074-6d0266de-e0c2-49bb-9519-7779dcb5ac2a.mp4
 
-You can also run [the demo](https://github.com/ISSOtm/gb-vwf/releases/download/v1.0.0/vwf.gb) yourself in your favorite Game Boy emulator.
+You can also run [the demo](https://github.com/ISSOtm/gb-vwf-demo/releases/latest) yourself in your favorite Game Boy emulator.
 
 Do you want to build the demo yourself, or to check out an example of how gb-vwf could be integrated into your project?
 Then please browse [the demo's source code](https://github.com/ISSOtm/gb-vwf-demo)!
+
+## How to use
+
+For detailed instructions, including installation and usage, please check [the wiki](https://github.com/ISSOtm/gb-vwf/wiki) out.
+
+Bugs can be reported on [the issue tracker](https://github.com/ISSOtm/gb-vwf/issues) (please check that it hasn't been reported already!), or by [bugging me on GBDev](https://gbdev.io/chat).
 
 ## Projects using gb-vwf
 
@@ -22,12 +28,6 @@ Open a pull request, or get in touch!
 ## Known bugs
 
 - If the “textbox” touches the right edge of the tilemap, newlines may occasionally skip one row of tiles.
-
-## How to use
-
-For detailed instructions, including installation and usage, please check [the wiki](https://github.com/ISSOtm/gb-vwf/wiki) out.
-
-Bugs can be reported on [the issue tracker](https://github.com/ISSOtm/gb-vwf/issues) (please check that it hasn't been reported already!), or by [bugging me on GBDev](https://gbdev.io/chat).
 
 ## Licensing
 
