@@ -143,7 +143,8 @@ dependencies = [
 [[package]]
 name = "libplum-sys"
 version = "1.0.1+v1.2"
-source = "git+https://git.sr.ht/~issotm/plumers?branch=master#6a2b3356d2f5d48f08b011ec5791b4c6cc5d3628"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baa08c87d85b61b64ab87d3f03e9ec2425c721ea7a80187ac4dff5bb6a0649ca"
 dependencies = [
  "bindgen",
  "cc",
@@ -198,7 +199,8 @@ checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 [[package]]
 name = "plumers"
 version = "1.0.1"
-source = "git+https://git.sr.ht/~issotm/plumers?branch=master#6a2b3356d2f5d48f08b011ec5791b4c6cc5d3628"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce404b6d8d094455f84bba4a183c9a3bdc64b8cb3ab3db0cf08989dec6c4bebf"
 dependencies = [
  "libplum-sys",
 ]
