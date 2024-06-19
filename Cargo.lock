@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "font_encoder"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "plumers",
  "slicedisplay",
@@ -142,7 +142,8 @@ dependencies = [
 
 [[package]]
 name = "libplum-sys"
-version = "1.0.0+v1.2"
+version = "1.0.1+v1.2"
+source = "git+https://git.sr.ht/~issotm/plumers?branch=master#6a2b3356d2f5d48f08b011ec5791b4c6cc5d3628"
 dependencies = [
  "bindgen",
  "cc",
@@ -162,9 +163,9 @@ checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "memchr"
-version = "2.7.2"
+version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
+checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "minimal-lexical"
@@ -196,7 +197,8 @@ checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
 name = "plumers"
-version = "1.0.0"
+version = "1.0.1"
+source = "git+https://git.sr.ht/~issotm/plumers?branch=master#6a2b3356d2f5d48f08b011ec5791b4c6cc5d3628"
 dependencies = [
  "libplum-sys",
 ]

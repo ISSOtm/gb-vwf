@@ -2,8 +2,9 @@
 name = "font_encoder"
 version = "2.0.0" # Use the same version as gb-vwf. Always. It'll avoid confusing people.
 edition = "2021"
+repository = "https://github.com/ISSOtm/gb-vwf"
 
 [dependencies]
-plumers = "1.0.0"
+plumers = { git = "https://git.sr.ht/~issotm/plumers", version = "1.0.0", branch = "master" }
 slicedisplay = "0.2.2"
 xflags = "0.3.2"
