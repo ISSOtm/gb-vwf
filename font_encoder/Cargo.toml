@@ -5,6 +5,6 @@ edition = "2021"
 repository = "https://github.com/ISSOtm/gb-vwf"
 
 [dependencies]
-plumers = { git = "https://git.sr.ht/~issotm/plumers", version = "1.0.0", branch = "master" }
+plumers = "1.0.1"
 slicedisplay = "0.2.2"
 xflags = "0.3.2"
