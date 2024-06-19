@@ -436,7 +436,7 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	; any effect in a particular instance.
 	runtime_assert TickVWFEngine, [wNbPixelsDrawn] < 8, "VWF engine cannot draw correctly with un-flushed tile! (Either you forgot to call PrintVWFChars, or you found a bug internal to gb-vwf :D)"
 
-	runtime_assert TickVWFEngine, &de == [wSourceBank], "Text should be read from \{[wSourceBank],$\}:\{de:4$\}, \{&de,$\}:\{de:4$\} is loaded instead"
+	runtime_assert TickVWFEngine, &de == [wSourceBank], "Text should be read from \{[wSourceBank],$\}:\{de,4$\}, \{&de,$\}:\{de,4$\} is loaded instead"
 	ld a, [de]
 	inc de ; By default, a character should be consumed. This will seldom be cancelled.
 	add a, a
