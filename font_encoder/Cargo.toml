@@ -1,9 +1,9 @@
 [package]
 name = "font_encoder"
-version = "0.1.0"
+version = "2.0.0" # Use the same version as gb-vwf. Always. It'll avoid confusing people.
 edition = "2021"
 
 [dependencies]
-plumers = { version = "1.0.0", path = "../../../../plumers/plumers" }
+plumers = "1.0.0"
 slicedisplay = "0.2.2"
 xflags = "0.3.2"
