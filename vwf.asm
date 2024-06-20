@@ -1086,7 +1086,7 @@ PrintVWFChars::
 	bit TEXTB_NEWLINE, a
 	jr z, .noNewline
 	res TEXTB_NEWLINE, a
-	ld [wFlags], a
+	ld [hl], a ; Write back to wFlags.
 	; A new line refreshes the width (obviously).
 	ld a, [wTextbox.width]
 	ld [wLookahead.nbTilesRemaining], a
