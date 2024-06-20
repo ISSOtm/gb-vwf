@@ -1,10 +1,11 @@
+
 # gb-vwf
 
 A Variable-Width Font library for the Game Boy & Game Boy Color.
 
 ## Demo
 
-https://user-images.githubusercontent.com/15271137/172129074-6d0266de-e0c2-49bb-9519-7779dcb5ac2a.mp4
+https://github.com/ISSOtm/gb-vwf/assets/15271137/c6397ab6-6a4a-411d-ab36-97b568871b22
 
 You can also run [the demo](https://github.com/ISSOtm/gb-vwf-demo/releases/latest) yourself in your favorite Game Boy emulator.
 
