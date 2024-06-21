@@ -614,18 +614,20 @@ AfterBreakableChar:
 	ldh a, [hNbPixelsDrawn]
 	ld [wNbPixelsDrawn], a
 :
-	db $FE ; cp <imm8>, skipping the following `pop hl`.
+	push af ; Compensate for the upcoming `pop hl`.
 Newline:
-	pop hl ; We're not returning to the normal code path.
 	; If there are no more lines remaining, scroll up to make room.
 	ld hl, wNbLinesRemaining
 	dec [hl]
-	jr nz, .noNeedToScroll
+	jr nz, Scroll.noNeedToScroll
 	inc [hl] ; Increment it back!
-.forceScroll
+Scroll:
 	ld hl, wFlags
+.pointsAtFlags
 	set TEXTB_SCROLL, [hl]
 .noNeedToScroll
+	; This is shared between `Newline` and `Scroll`, hence its odd placement.
+	pop hl ; We're not returning to the normal code path.
 
 	; Force flushing of the current tile...
 	ld hl, wNbPixelsDrawn
@@ -653,11 +655,7 @@ Newline:
 WaitAndScroll:
 	ld hl, wFlags
 	set TEXTB_WAITING, [hl]
-	; fallthrough
-Scroll:
-	ld hl, wFlags
-	set TEXTB_SCROLL, [hl]
-	jr Newline.forceScroll ; Also skips decrementing `wNbLinesRemaining`.
+	jr Scroll.pointsAtFlags
 
 Wait:
 	pop hl ; We're not returning to the normal code path.
