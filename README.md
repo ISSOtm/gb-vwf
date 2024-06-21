@@ -26,10 +26,6 @@ Bugs can be reported on [the issue tracker](https://github.com/ISSOtm/gb-vwf/iss
 Are you using gb-vwf, and would like to be featured in this list?
 Open a pull request, or get in touch!
 
-## Known bugs
-
-- If the “textbox” touches the right edge of the tilemap, newlines may occasionally skip one row of tiles.
-
 ## Licensing
 
 The VWF engine itself is licensed under the MPL 2.0.
