@@ -614,13 +614,16 @@ AfterBreakableChar:
 	ld [wNbPixelsDrawn], a
 :
 	push af ; Compensate for the upcoming `pop hl`.
+	assert @ == Newline ; Fallthrough.
+
 Newline:
 	; If there are no more lines remaining, scroll up to make room.
 	ld hl, wNbLinesRemaining
 	dec [hl]
 	jr nz, Scroll.noNeedToScroll
-	inc [hl] ; Increment it back!
 Scroll:
+	ld hl, wNbLinesRemaining
+	inc [hl] ; Increment it back!
 	ld hl, wFlags
 	set TEXTB_SCROLL, [hl]
 .noNeedToScroll
@@ -640,15 +643,16 @@ Scroll:
 	set TEXTB_NEWLINE, [hl]
 
 	; Avoid scrolling text off-screen that the user hasn't had a chance to "acknowledge" yet.
+	; (Flushing was just forced, so no more chars can be processed!)
 	; hl == wFlags
 	bit TEXTB_NONBLANK, [hl]
-	jr z, TickVWFEngine.doneProcessingChars
+	jr z, TickVWFEngine.doneProcessingChars ; No "visible" character has been written yet.
 	ld hl, wNbLinesRead
 	dec [hl]
 	jr nz, TickVWFEngine.doneProcessingChars
 	ld hl, wFlags
 	set TEXTB_WAITING, [hl]
-	jr TickVWFEngine.doneProcessingChars ; Flushing was just forced, so no more chars can be processed!
+	jr TickVWFEngine.doneProcessingChars
 
 Wait:
 	pop hl ; We're not returning to the normal code path.
@@ -1104,8 +1108,8 @@ PrintVWFChars::
 	ld hl, wFlags
 	bit TEXTB_SCROLL, [hl]
 	jr z, .notScrolling
-	bit TEXTB_WAITING, [hl] ; To support WAIT_SCROLL.
-	jr nz, .notScrolling
+	bit TEXTB_WAITING, [hl] ; Newlines at the bottom of the textbox can set both flags at the same time.
+	jr nz, .notScrolling ; If so, avoid performing the scrolling prematurely.
 	res TEXTB_SCROLL, [hl]
 
 	ld hl, wTextbox.origin
