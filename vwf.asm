@@ -127,7 +127,6 @@ ENDM
 	control_char SYNC,          ExternalSync
 	control_char WAIT,          Wait
 	control_char SCROLL,        Scroll
-	control_char WAIT_SCROLL,   WaitAndScroll
 
 ; Process the config file.
 
@@ -623,7 +622,6 @@ Newline:
 	inc [hl] ; Increment it back!
 Scroll:
 	ld hl, wFlags
-.pointsAtFlags
 	set TEXTB_SCROLL, [hl]
 .noNeedToScroll
 	; This is shared between `Newline` and `Scroll`, hence its odd placement.
@@ -651,11 +649,6 @@ Scroll:
 	ld hl, wFlags
 	set TEXTB_WAITING, [hl]
 	jr TickVWFEngine.doneProcessingChars ; Flushing was just forced, so no more chars can be processed!
-
-WaitAndScroll:
-	ld hl, wFlags
-	set TEXTB_WAITING, [hl]
-	jr Scroll.pointsAtFlags
 
 Wait:
 	pop hl ; We're not returning to the normal code path.
