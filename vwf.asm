@@ -48,16 +48,8 @@ MACRO vwf_charmap
 
 	IF DEF(PRINT_DEBUGFILE)
 	ELIF DEF(PRINT_CHARMAP)
-		IF !DEF(BEGUN_CHARMAP)
-			def BEGUN_CHARMAP equ 1
-			PRINTLN "newcharmap vwf"
-		ENDC
 		PRINTLN "charmap \1,{TMP}"
 	ELIF DEF(PRINT_TBL)
-		IF !DEF(BEGUN_CHARMAP)
-			def BEGUN_CHARMAP equ 1
-			PRINTLN "@VWF"
-		ENDC
 		def name equs ""
 		IF _NARG > 1
 			redef name equs "\2"
@@ -111,6 +103,13 @@ MACRO control_char ; <name>, [!]<handler ptr> [, <arg>... ]
 	vwf_charmap {charmap_def}, \#
 	PURGE char_name, nb_operand_bytes, charmap_def
 ENDM
+
+; `vwf_charmap` is about to be called via `control_char`, so, might as well.
+IF DEF(PRINT_CHARMAP)
+	println "newcharmap vwf"
+ELIF DEF(PRINT_TBL)
+	println "@VWF"
+ENDC
 
 ; Define the built-in control chars first, as their numeric values are important to the engine.
 
