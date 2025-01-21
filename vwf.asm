@@ -169,7 +169,11 @@ ENDC
 ;;; Now, some things that the rest of the engine uses.
 
 IF !DEF(lb)
-	FAIL "Please define the `lb` macro in \"{VWF_CFG_FILE}\"."
+	MACRO lb
+		assert (\2) < 256 && (\2) >= -128, "Arguments to `lb` must be 8-bit values!"
+		assert (\3) < 256 && (\3) >= -128, "Arguments to `lb` must be 8-bit values!"
+		ld \1, (\2) << 8 | (\3)
+	ENDM
 ENDC
 
 IF !DEF(get_cur_rom_bank_id)
