@@ -171,10 +171,6 @@ IF !DEF(lb)
 	ENDM
 ENDC
 
-IF !DEF(get_cur_rom_bank_id)
-	FAIL "Please define the `get_bank_id` macro in \"{VWF_CFG_FILE}\"."
-ENDC
-
 IF !DEF(switch_rom_bank)
 	FAIL "Please define the `switch_rom_bank` macro in \"{VWF_CFG_FILE}\"."
 ENDC
