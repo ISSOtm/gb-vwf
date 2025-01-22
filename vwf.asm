@@ -74,24 +74,25 @@ def NB_VWF_CTRL_CHARS equ 0
 EXPORT NB_VWF_CTRL_CHARS
 def ctrl_char_ptrs equs ""
 def ctrl_char_lens equs ""
-; A bang before the handler pointer means that the control char terminates lines.
+; The first argument being a bang means that the control char terminates lines.
 ; Args should specify .tbl file control code parameters; it is expected that 1 param = 1 operand byte.
 ; (See https://transcorp.romhacking.net/scratchpad/Table%20File%20Format.txt, section 2.5.1 for syntax.)
 ; Note that the contents of the <arg>s is only for the .tbl file, but their number is crucial to the lookahead!
-MACRO control_char ; <name>, [!]<handler ptr> [, <arg>... ]
+MACRO control_char ; [!,] <name>, <handler ptr> [, <arg>... ]
+	IF !STRCMP("\1", "!")
+		shift
+		def nb_operand_bytes equ (_NARG - 2) << 1 | 1
+	ELSE
+		def nb_operand_bytes equ (_NARG - 2) << 1
+	ENDC
+
 	IF _NARG < 2
 		FAIL "`control_char` expects at least 2 arguments, not {d:_NARG}"
 	ENDC
 
 	redef NB_VWF_CTRL_CHARS equ NB_VWF_CTRL_CHARS + 1
-	def char_name equs "\2"
-	def nb_operand_bytes equ (_NARG - 2) << 1
-	IF !STRCMP(STRSUB("{char_name}", 1, 1), "!")
-		redef char_name equs STRSUB("{char_name}", 2)
-		redef nb_operand_bytes equ nb_operand_bytes | 1
-	ENDC
 
-	redef ctrl_char_ptrs equs "dw {char_name}\n{ctrl_char_ptrs}"
+	redef ctrl_char_ptrs equs "dw \2\n{ctrl_char_ptrs}"
 	IF def(NB_SPECIAL_CTRL_CHARS) ; Special control chars (defined before that var) do not store their length.
 		redef ctrl_char_lens equs "db {nb_operand_bytes}\n{ctrl_char_lens}"
 	ENDC
@@ -101,7 +102,7 @@ MACRO control_char ; <name>, [!]<handler ptr> [, <arg>... ]
 	EXPORT VWF_\1
 	shift 2
 	vwf_charmap {charmap_def}, \#
-	PURGE char_name, nb_operand_bytes, charmap_def
+	PURGE nb_operand_bytes, charmap_def
 ENDM
 
 ; `vwf_charmap` is about to be called via `control_char`, so, might as well.
@@ -120,7 +121,7 @@ ENDC
 	control_char SET_VARIANT,   SetVariant,      variant=%D
 	control_char ZWS,           SoftHyphen ; "Zero-Width Space"
 	def NB_SPECIAL_CTRL_CHARS equ NB_VWF_CTRL_CHARS ; All of the special chars must be above this!
-	control_char NEWLINE,       !Newline
+	control_char !,NEWLINE,     Newline
 	control_char SET_COLOR,     SetColor,        color=%D
 	control_char DELAY,         DelayNextChar,   nb_frames=%D
 	control_char SYNC,          ExternalSync
