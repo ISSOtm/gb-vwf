@@ -146,9 +146,11 @@ ENDC
 ; Number of elements the text stack has room for.
 IF !DEF(STACK_CAPACITY)
 	def STACK_CAPACITY equ 8
-ELIF STACK_CAPACITY & $80
+ELIF STACK_CAPACITY > 127
 	; This must not have bit 7 set, as the return logic discards bit 7 when checking for zero.
 	FAIL "Stack capacity ({STACK_CAPACITY}) may not have bit 7 set!"
+ELIF STACK_CAPACITY < 1
+	FAIL "Stack capacity ({STACK_CAPACITY}) must be at least 1!"
 ENDC
 
 ; Do **NOT** print more than this amount of newlines in a single call to `PrintVWFChars`!
