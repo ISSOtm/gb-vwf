@@ -153,13 +153,6 @@ ELIF STACK_CAPACITY < 1
 	FAIL "Stack capacity ({STACK_CAPACITY}) must be at least 1!"
 ENDC
 
-; Do **NOT** print more than this amount of newlines in a single call to `PrintVWFChars`!
-; This would overflow an internal buffer.
-; If you want to be safe, set this to the maximum textbox height you will be using.
-IF !DEF(NEWLINE_CAPACITY)
-	def NEWLINE_CAPACITY equ 10
-ENDC
-
 ; This adjusts how many bits (starting from the LSB) of the font ID are treated as the "variant".
 ; 2 bits is enough for Regular, Bold, Italic, Bold+Italic; this should cover most use cases.
 IF !DEF(NB_VARIANT_BITS)
