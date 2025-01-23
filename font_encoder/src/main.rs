@@ -15,11 +15,14 @@ use plumers::prelude::*;
 use slicedisplay::SliceDisplay;
 
 fn main() -> ExitCode {
-    let mut args = xflags::parse_or_exit! {
+    let args = xflags::parse_or_exit! {
         /// Font image file to process
         required input_path: PathBuf
         /// Path to write the encoded font to
         required output_path: PathBuf
+        /// Path to write the font glyph widths to
+        /// Defaults to the output_path, but with the file extension set to `vwflen`
+        optional -w,--widths path: PathBuf
     };
 
     let input = match File::open(&args.input_path) {
@@ -81,8 +84,12 @@ Error: the input image must only contain black, white, and a \"filler\" colour
     let charset = extract_charset(&img);
 
     output_charset(&args.output_path, &charset);
-    args.output_path.set_extension("vwflen");
-    output_charset_len(&args.output_path, &charset);
+    output_charset_len(
+        &args
+            .widths
+            .unwrap_or_else(|| args.output_path.with_extension("vwflen")),
+        &charset,
+    );
 
     ExitCode::SUCCESS
 }
