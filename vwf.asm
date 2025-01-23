@@ -31,42 +31,57 @@ MACRO font
 	export def \1 equ font_id
 	def font{x:font_id}_ptr equs "Font\1Ptr"
 	def font{x:font_id}_data equs "INCBIN \"\2len\"\nFont\1Ptr:INCBIN \"\2\""
-	; TODO: when RGBASM adds multi-byte charmap support, provide short-hand charmaps that emit the control code and the index
+
+	vwf_alias "<FONT_\1>", VWF_SET_FONT, \1
+
 	def font_id += 1
+ENDM
+
+MACRO vwf_alias
+	charmap \#
+
+	IF DEF(PRINT_DEBUGFILE)
+	ELIF DEF(PRINT_CHARMAP)
+		print "charmap \1"
+		REPT _NARG - 1
+			shift
+			def VALUE equ (\1)
+			print ",{VALUE}"
+			purge VALUE
+		ENDR
+		println
+	; Don't print aliases in `.tbl` files, though.
+	ENDC
 ENDM
 
 ; Macros required by the above.
 
 MACRO vwf_charmap
-	IF _NARG > 1
-		def TMP equ (\2)
-	ELSE
-		def TMP equ \1
-	ENDC
-	charmap \1, TMP
+	def VALUE equ (\2)
+	charmap \1, VALUE
 
 	IF DEF(PRINT_DEBUGFILE)
 	ELIF DEF(PRINT_CHARMAP)
-		PRINTLN "charmap \1,{TMP}"
+		PRINTLN "charmap \1,{VALUE}"
 	ELIF DEF(PRINT_TBL)
 		def name equs ""
 		IF _NARG > 1
 			redef name equs "\2"
 		ENDC
 		IF !STRCMP("{name}", "VWF_END") || !STRCMP("{name}", "VWF_JUMP")
-			PRINTLN "/{X:TMP}=[{name}]"
+			PRINTLN "/{X:VALUE}=[{name}]"
 		ELIF !STRCMP("{name}", "VWF_NEWLINE")
-			PRINTLN "{X:TMP}=\\n"
+			PRINTLN "{X:VALUE}=\\n"
 		ELIF !STRCMP(STRSUB("{name}", 1, 4), "VWF_")
 			shift 2
-			PRINTLN "${X:TMP}=[{name}],\#"
+			PRINTLN "${X:VALUE}=[{name}],\#"
 		ELSE
-			PRINTLN "{X:TMP}=", \1
+			PRINTLN "{X:VALUE}=", \1
 		ENDC
 		PURGE name
 	ENDC
 
-	purge TMP
+	purge VALUE
 ENDM
 
 export def NB_VWF_CTRL_CHARS equ 0
@@ -114,12 +129,14 @@ ENDC
 	control_char END,           TextReturn
 	control_char CALL,          TextCall,        low=%X,high=%X
 	control_char JUMP,          TextJumpTo,      low=%X,high=%X
-	control_char SET_FONT,      SetFont,         font=%D
+	control_char SET_FONT,      SetFont,         font=%D ; Aliases are created dynamically by the `font` macro.
 	control_char SET_VARIANT,   SetVariant,      variant=%D
 	control_char ZWS,           SoftHyphen ; "Zero-Width Space"
 	def NB_SPECIAL_CTRL_CHARS equ NB_VWF_CTRL_CHARS ; All of the special chars must be above this!
 	control_char !,NEWLINE,     Newline
 	control_char SET_COLOR,     SetColor,        color=%D
+	vwf_alias "<COLOR3>", VWF_SET_COLOR, 0
+	vwf_alias "<COLOR1>", VWF_SET_COLOR, 1
 	control_char DELAY,         DelayNextChar,   nb_frames=%D
 	control_char SYNC,          ExternalSync
 	control_char WAIT,          Wait
