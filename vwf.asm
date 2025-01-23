@@ -28,8 +28,7 @@ ENDM
 
 def font_id = 0
 MACRO font
-	def \1 equ font_id
-	EXPORT \1
+	export def \1 equ font_id
 	def font{x:font_id}_ptr equs "Font\1Ptr"
 	def font{x:font_id}_data equs "INCBIN \"\2len\"\nFont\1Ptr:INCBIN \"\2\""
 	; TODO: when RGBASM adds multi-byte charmap support, provide short-hand charmaps that emit the control code and the index
@@ -70,8 +69,7 @@ MACRO vwf_charmap
 	purge TMP
 ENDM
 
-def NB_VWF_CTRL_CHARS equ 0
-EXPORT NB_VWF_CTRL_CHARS
+export def NB_VWF_CTRL_CHARS equ 0
 def ctrl_char_ptrs equs ""
 def ctrl_char_lens equs ""
 ; The first argument being a bang means that the control char terminates lines.
@@ -98,8 +96,7 @@ MACRO control_char ; [!,] <name>, <handler ptr> [, <arg>... ]
 	ENDC
 
 	def charmap_def equs "\"<\1>\", VWF_\1"
-	def VWF_\1 equ 256 - NB_VWF_CTRL_CHARS
-	EXPORT VWF_\1
+	export def VWF_\1 equ 256 - NB_VWF_CTRL_CHARS
 	shift 2
 	vwf_charmap {charmap_def}, \#
 	PURGE nb_operand_bytes, charmap_def
@@ -195,9 +192,8 @@ ENDC
 ; FIXME: it would be neater to define these next to `wFlags`, but RGBDS 0.6.1 requires the first
 ; operand to `bit`, `set`, and `res` to be constant...
 MACRO flag
-	def TEXTB_\2 equ (\1)
-	def TEXTF_\2 equ 1 << TEXTB_\2
-	EXPORT TEXTB_\2, TEXTF_\2
+	export def TEXTB_\2 equ (\1)
+	export def TEXTF_\2 equ 1 << TEXTB_\2
 ENDM
 	flag 7, WAITING ; If set, the engine will not process ticks.
 	flag 6, SYNC ; Set by the "<SYNC>" control char, otherwise ignored.
@@ -239,9 +235,8 @@ ENDC
 ; @param a:  Whether to flush the current string (either of the constants below).
 ;            Use `VWF_CONT_STR` if you want to keep printing to the same string you previously were.
 ;            Note that `VWF_NEW_STR` causes the auto-linewrapper to assume a new line is being started.
-	def VWF_NEW_STR  equ 0
-	def VWF_CONT_STR equ 1
-	EXPORT VWF_CONT_STR, VWF_NEW_STR
+	export def VWF_NEW_STR  equ 0
+	export def VWF_CONT_STR equ 1
 ; @return a: 1
 ; @destroy b hl
 SetupVWFEngine::
