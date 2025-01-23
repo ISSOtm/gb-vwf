@@ -209,46 +209,17 @@ ENDM
 
 ;; Debugfile-related macros.
 
-IF DEF(PRINT_DEBUGFILE)
-	PRINTLN "@debugfile 1.0.0"
-	MACRO dbg_var ; <name>, <default value>
-		def DEFAULT_VALUE equs "0"
-		IF _NARG > 1
-			redef DEFAULT_VALUE equs "\2"
-		ENDC
-		PRINTLN "@var \1 {DEFAULT_VALUE}"
-		purge DEFAULT_VALUE
-	ENDM
-	MACRO dbg_action ; <function>, <action:str> [, <condition:dbg_expr>]
-		def OFS_FROM_BASE equ @ - \1
-		def ACTION_COND equs ""
-		IF _NARG > 2
-			redef ACTION_COND equs "\3"
-		ENDC
-		PRINTLN "\1+{d:OFS_FROM_BASE} x {ACTION_COND}: ", \2
-		purge OFS_FROM_BASE, ACTION_COND
-	ENDM
-	MACRO runtime_assert ; <function>, <condition:dbg_expr> [, <message:dbg_str>]
-		def MSG equs "assert failure"
-		IF _NARG > 2
-			redef MSG equs \3
-		ENDC
-		dbg_action \1, "alert \"{MSG}\"", !(\2)
-		purge MSG
-	ENDM
-	MACRO unreachable ; <function> [, <message:dbg_str>]
-		def MSG equs "unreachable code reached!"
-		IF _NARG > 1
-			redef MSG equs \2
-		ENDC
-		dbg_action \1, "alert \"In \1: {MSG}\""
-		purge MSG
-	ENDM
+IF DEF(DEBUGFILE_INC)
+	require_debugfile_inc_v 1.0
 ELSE
-	def dbg_var equs ";"
-	def dbg_action equs ";"
-	def runtime_assert equs ";"
-	def unreachable equs ";"
+	MACRO dbg_var
+	ENDM
+	MACRO dbg_action
+	ENDM
+	MACRO runtime_assert
+	ENDM
+	MACRO unreachable
+	ENDM
 ENDC
 
 
@@ -350,11 +321,11 @@ TextReturn:
 	dec [hl]
 	jr nz, TickVWFEngine.reReadCurStackEntry ; Reuse the normal "read stack entry" path.
 	; Yes, we bypass all of the "cleanup"; we aren't planning to do anything else anyway.
-	runtime_assert TextReturn, sp == @_vwfEntrySp, "SP (\{sp,4$\}) != entry SP (\{_vwfEntrySp,4$\})!"
+	runtime_assert sp == @_vwfEntrySp, "SP (\{sp,4$\}) != entry SP (\{_vwfEntrySp,4$\})!"
 	ret ; Conditional returns never perform better than avoiding them conditionally.
 
 HandleControlChar:
-	runtime_assert HandleControlChar, (a / 2 | $80) >= 256 - {NB_VWF_CTRL_CHARS}, "Invalid control character \{a / 2 | $80,2$\}"
+	runtime_assert (a / 2 | $80) >= 256 - {NB_VWF_CTRL_CHARS}, "Invalid control character \{a / 2 | $80,2$\}"
 	; Keep processing characters after this one.
 	ld hl, TickVWFEngine.readInputChar
 	push hl
@@ -388,8 +359,8 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	and TEXTF_WAITING | TEXTF_SCROLL
 	ret nz
 
-	runtime_assert TickVWFEngine, [wSourceStack.len] != 0, "VWF engine called with empty stack!!!"
-	dbg_action TickVWFEngine, "set @_vwfEntrySp := @sp"
+	runtime_assert [wSourceStack.len] != 0, "VWF engine called with empty stack!!!"
+	dbg_action "set @_vwfEntrySp := @sp"
 	; TODO: runtime_assert that control chars declare the same length that they actually use
 
 	assert wFlags + 1 == wNbTicksToNextPrint
@@ -428,9 +399,9 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	; the engine looping into itself incorrectly.
 	; It is checked even for control chars, so as to report bugs even if they don't end up having
 	; any effect in a particular instance.
-	runtime_assert TickVWFEngine, [wNbPixelsDrawn] < 8, "VWF engine cannot draw correctly with un-flushed tile! (Either you forgot to call PrintVWFChars, or you found a bug internal to gb-vwf :D)"
+	runtime_assert [wNbPixelsDrawn] < 8, "VWF engine cannot draw correctly with un-flushed tile! (Either you forgot to call PrintVWFChars, or you found a bug internal to gb-vwf :D)"
 
-	runtime_assert TickVWFEngine, &de == [wSourceBank], "Text should be read from \{[wSourceBank],$\}:\{de,4$\}, \{&de,$\}:\{de,4$\} is loaded instead"
+	runtime_assert &de == [wSourceBank], "Text should be read from \{[wSourceBank],$\}:\{de,4$\}, \{&de,$\}:\{de,4$\} is loaded instead"
 	ld a, [de]
 	inc de ; By default, a character should be consumed. This will seldom be cancelled.
 	add a, a
@@ -467,7 +438,7 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 
 	; Read by how much the glyph's pixels will need to be shifted right.
 	ld a, [wNbPixelsDrawn]
-	runtime_assert TickVWFEngine, @a < 8, "A glyph should never be drawn with a full buffer!"
+	runtime_assert @a < 8, "A glyph should never be drawn with a full buffer!"
 	ldh [hNbPixelsDrawn], a
 	ld e, a
 	; Compute the pointer to the appropriate shift table.
@@ -476,7 +447,7 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld d, a ; Prepare to index into this table a whole lot.
 	; Increase that by the glyph's width.
 	ld a, [bc]
-	runtime_assert TickVWFEngine, @a <= 8, "Glyphs can only be up to 8 pixels wide!"
+	runtime_assert @a <= 8, "Glyphs can only be up to 8 pixels wide!"
 	add a, e
 	ld [wNbPixelsDrawn], a
 
@@ -494,7 +465,7 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld hl, wTileBuffer + 2
 .drawHighBitplane
 	ld a, [bc]
-	runtime_assert TickVWFEngine, (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
+	runtime_assert (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
 	inc bc
 	assert LOW(ShiftLUT) == 0
 	ld e, a
@@ -519,7 +490,7 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld hl, wTileBuffer
 .drawLowBitplane
 	ld a, [bc]
-	runtime_assert TickVWFEngine, (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
+	runtime_assert (@a & 1) == 0, "Glyphs cannot have black pixels in the 8th column!"
 	inc bc
 	assert LOW(ShiftLUT) == 0
 	ld e, a
@@ -587,7 +558,7 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	ld a, d
 	ld [hli], a
 	ld [hl], e
-	runtime_assert TextReturn, sp == @_vwfEntrySp, "SP (\{sp,4$\}) != entry SP (\{_vwfEntrySp,4$\})!"
+	runtime_assert sp == @_vwfEntrySp, "SP (\{sp,4$\}) != entry SP (\{_vwfEntrySp,4$\})!"
 	ret
 
 ; Some special control chars.
@@ -666,7 +637,7 @@ DelayNextChar:
 
 TextCall:
 	; Reserve a new stack entry.
-	runtime_assert TextCall, [wSourceStack.len] <= {STACK_CAPACITY}, "VWF stack overflow! (Please reduce your text call depth, or increase STACK_CAPACITY)."
+	runtime_assert [wSourceStack.len] <= {STACK_CAPACITY}, "VWF stack overflow! (Please reduce your text call depth, or increase STACK_CAPACITY)."
 
 	ld hl, wSourceStack.len
 	ld a, [hl] ; Not decrementing means that we'll point at the entry's second byte.
@@ -756,8 +727,8 @@ ExternalSync:
 ; @return zf: Clear if the line should be broken right now.
 ; @destroy a
 ShouldBreakLine:
-	runtime_assert ShouldBreakLine, [wTextbox.width] != 0, "Textbox must have a non-zero width!"
-	runtime_assert ShouldBreakLine, [wTextbox.width] <= 32, "Textbox cannot be wider than a tilemap!"
+	runtime_assert [wTextbox.width] != 0, "Textbox must have a non-zero width!"
+	runtime_assert [wTextbox.width] <= 32, "Textbox cannot be wider than a tilemap!"
 	push de ; Save the source pointer.
 
 	; Copy all shadow variables.
@@ -844,7 +815,7 @@ ShouldBreakLine:
 
 
 .controlChar
-	runtime_assert ShouldBreakLine, cf, "Internal bug: carry isn't set!?"
+	runtime_assert cf, "Internal bug: carry isn't set!?"
 	rra ; Restore the original value, since it's actually easier to process that way.
 	assert VWF_END == $FF
 	inc a
@@ -885,7 +856,7 @@ ShouldBreakLine:
 	ld hl, wLookahead.stackLen
 	ld a, [hl]
 	add a, a ; Check if we went through a "one-way call"; if so, we can't return.
-	dbg_action ShouldBreakLine, "message \"Warning: unable to determine line length (\{@a / 2\} entries left, '<END>' at \{&(@de - 1),$\}:\{@de - 1,4$\})\"", @cf
+	dbg_action "message \"Warning: unable to determine line length (\{@a / 2\} entries left, '<END>' at \{&(@de - 1),$\}:\{@de - 1,4$\})\"", @cf
 	jr c, .returnShouldntBreak ; We want to return Z, but we don't know Z's value right now.
 	dec [hl] ; Decrement the stack length.
 	jr z, .return ; We wouldn't overflow before the text stream ends, and Z is set.
@@ -902,13 +873,13 @@ ShouldBreakLine:
 	jr .readInputChar
 
 .jump
-	runtime_assert ShouldBreakLine, zf, "Internal bug: Z isn't set!?"
+	runtime_assert zf, "Internal bug: Z isn't set!?"
 	ld a, [de]
 	inc de
 	ld c, a
 	db $C4 ; call nz, <imm16>, skipping the following `set 7, [hl]`.
 .oneWayCall
-	runtime_assert ShouldBreakLine, (@pc != ShouldBreakLine.oneWayCall) || (@hl == wLookahead.stackLen), "Internal bug: mispointed `hl`"
+	runtime_assert (@pc != ShouldBreakLine.oneWayCall) || (@hl == wLookahead.stackLen), "Internal bug: mispointed `hl`"
 	set 7, [hl] ; Set the "one-way" flag.
 	; Jump to the callee.
 	ld a, [de]
@@ -956,7 +927,7 @@ ShouldBreakLine:
 	jr .updateFontPtr
 
 .call
-	runtime_assert ShouldBreakLine, [wLookahead.stackLen] < {STACK_CAPACITY}, "VWF stack overflow during lookahead! (Please reduce your text call depth, or increase STACK_CAPACITY.)"
+	runtime_assert [wLookahead.stackLen] < {STACK_CAPACITY}, "VWF stack overflow during lookahead! (Please reduce your text call depth, or increase STACK_CAPACITY.)"
 	ld hl, wLookahead.stackLen
 	inc [hl] ; Increment the stack depth.
 	; Read the first byte of the new pointer, since we have to do that on all code paths.
@@ -992,7 +963,7 @@ PrintVWFChars::
 	ld a, [wNbPixelsDrawn]
 	sub 8
 	jr c, .noNeedToFlush
-	runtime_assert PrintVWFChars, @a < 16, "Tile buffer would need triple-flushing! (\{@a - 8,2$\} pixels remaining after flush)"
+	runtime_assert @a < 16, "Tile buffer would need triple-flushing! (\{@a - 8,2$\} pixels remaining after flush)"
 .flushAgain
 	ld [wNbPixelsDrawn], a
 
@@ -1019,7 +990,7 @@ PrintVWFChars::
 	dec de
 	ld b, [hl] ; Grab the right tile's pixels,
 	wait_vram
-	runtime_assert PrintVWFChars, a == 0, "`wait_vram` macro returned a == \{a,2$\}, not 0!"
+	runtime_assert a == 0, "`wait_vram` macro returned a == \{a,2$\}, not 0!"
 	ld [hld], a ; ...and reset them.
 	ld a, [hl]
 	ld [de], a
@@ -1168,7 +1139,7 @@ PrintVWFChars::
 	ld a, [wNbPixelsDrawn] ; If that tile is blank, don't bother.
 	cp 2
 	ret c
-	runtime_assert PrintVWFChars, [wPrinterHeadPtr!] & $1F < ([wTextbox.origin!] & $1F) + [wTextbox.width], "Went past textbox right side!"
+	runtime_assert [wPrinterHeadPtr!] & $1F < ([wTextbox.origin!] & $1F) + [wTextbox.width], "Went past textbox right side!"
 	; If "insta-printing", don't bother showing the incomplete tile, it will be filled next time.
 	; This saves CPU for each call to this function.
 	ld a, [wNbTicksBetweenPrints]
