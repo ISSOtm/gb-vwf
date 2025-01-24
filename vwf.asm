@@ -18,6 +18,8 @@ ENDC
 def charmap_idx = 0
 MACRO chars
 	REPT _NARG
+		assert charmap_idx != 128, "There can only be up to 128 control characters!"
+
 		IF STRLEN(\1) != 0
 			vwf_charmap \1, charmap_idx
 		ENDC
@@ -30,7 +32,7 @@ def font_id = 0
 MACRO font
 	export def \1 equ font_id
 	def font{x:font_id}_ptr equs "Font\1Ptr"
-	def font{x:font_id}_data equs "INCBIN \"\2len\"\nFont\1Ptr:INCBIN \"\2\""
+	def font{x:font_id}_data equs "INCBIN \"\2len\"\n{font{x:font_id}_ptr}:INCBIN \"\2\""
 
 	vwf_alias "<FONT_\1>", VWF_SET_FONT, \1
 
@@ -92,6 +94,8 @@ def ctrl_char_lens equs ""
 ; (See https://transcorp.romhacking.net/scratchpad/Table%20File%20Format.txt, section 2.5.1 for syntax.)
 ; Note that the contents of the <arg>s is only for the .tbl file, but their number is crucial to the lookahead!
 MACRO control_char ; [!,] <name>, <handler ptr> [, <arg>... ]
+	assert NB_VWF_CTRL_CHARS != 128, "There can only be up to 128 control characters!"
+
 	IF !STRCMP("\1", "!")
 		shift
 		def nb_operand_bytes equ (_NARG - 2) << 1 | 1
@@ -1235,6 +1239,10 @@ ShiftLUT:
 
 	FOR I, font_id
 		{font{x:I}_data}
+
+		def nb_chars_defined = (@ - {font{x:I}_ptr}) / 8
+		assert warn, nb_chars_defined == charmap_idx, \
+			STRCAT("Font {d:I} (", STRSUB("{font{x:I}_ptr}", 5, STRLEN("{font{x:I}_ptr}") - 7), ") defined {d:nb_chars_defined} characters, instead of the charset's {d:charmap_idx}")
 	ENDR
 
 
