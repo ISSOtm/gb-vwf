@@ -18,7 +18,7 @@ ENDC
 def charmap_idx = 0
 MACRO chars
 	REPT _NARG
-		assert charmap_idx != 128, "There can only be up to 128 control characters!"
+		assert charmap_idx != 128, "There can only be up to 128 printable characters! (The 128th is \1)"
 
 		IF STRLEN(\1) != 0
 			vwf_charmap \1, charmap_idx
