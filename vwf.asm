@@ -924,7 +924,8 @@ ShouldBreakLine:
 	inc bc
 	ld a, [bc]
 	ld [hli], a
-	jp .readInputChar ; TODO: too far to `jr` :(
+	assert warn, @ - .readInputChar, "This could be a `jr`!" ; TODO: can this be optimised?
+	jp .readInputChar
 
 .setVariant
 	ld hl, wLookahead.fontID
@@ -964,7 +965,8 @@ ShouldBreakLine:
 	; Switch to the new source pointer.
 	ld d, a
 	ld e, c
-	jp .readInputChar ; TODO: too far to `jr` :(
+	assert warn, @ - .readInputChar, "This could be a `jr`!" ; TODO: can this be optimised?
+	jp .readInputChar
 
 
 PrintVWFChars::
