@@ -249,6 +249,9 @@ ENDC
 
 	; Holds the value of SP when entering `TickVWFEngine`, used to check the stack is balanced on exit.
 	dbg_var _vwfEntrySp
+	; Holds the pointer to the current control char's operands, to check that control chars actually
+	; use as many bytes as they declare.
+	dbg_var _vwfOperandsEndPtr
 
 
 ; @param hl: Pointer to the string to be displayed
@@ -342,6 +345,9 @@ TextReturn:
 
 HandleControlChar:
 	runtime_assert (a / 2 | $80) >= 256 - {NB_VWF_CTRL_CHARS}, "Invalid control character \{a / 2 | $80,2$\}"
+	; Only test non-special control chars, since the special ones are handled specially by `ShouldBreakLine`
+	; (which this is a consistency check for).
+	dbg_action "set _vwfOperandsEndPtr := de + [ControlChars.lengths - (128 - {NB_SPECIAL_CTRL_CHARS} - a / 2)] / 2; enable vwfCtrlCharLen; message \"$\{@_vwfOperandsEndPtr,04$\}\"", a / 2 < 128 - {NB_SPECIAL_CTRL_CHARS}
 	; Keep processing characters after this one.
 	ld hl, TickVWFEngine.readInputChar
 	push hl
@@ -377,7 +383,6 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 
 	runtime_assert [wSourceStack.len] != 0, "VWF engine called with empty stack!!!"
 	dbg_action "set @_vwfEntrySp := @sp"
-	; TODO: runtime_assert that control chars declare the same length that they actually use
 
 	assert wFlags + 1 == wNbTicksToNextPrint
 	dec [hl]
@@ -405,12 +410,18 @@ TickVWFEngine:: ; Note that a lot of local labels in this loop are jumped to fro
 	adc a, h ; TODO: alignment may make a carry impossible; check this everywhere the stack is accessed, too
 	sub l
 	ld h, a
+	dbg_action "disable vwfCtrlCharLen"
 	; Read the active stack entry. (Big-endian!)
 	ld a, [hli]
 	ld e, [hl]
 	ld d, a
 
 .readInputChar
+	dbg_group vwfCtrlCharLen, "VWF control char length check"
+	runtime_assert de == @_vwfOperandsEndPtr, "Control character appears to have read the wrong number of operands (de = $\{de,04$\}, expected $\{@_vwfOperandsEndPtr,04$\})"
+	dbg_action "disable vwfCtrlCharLen"
+	end_dbg_group
+
 	; This assertion is not checked at the function's entry point, so as to catch bugs caused by
 	; the engine looping into itself incorrectly.
 	; It is checked even for control chars, so as to report bugs even if they don't end up having
