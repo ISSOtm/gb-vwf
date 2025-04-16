@@ -225,6 +225,10 @@ ELSE
 	ENDM
 	MACRO dbg_action
 	ENDM
+	MACRO dbg_group
+	ENDM
+	MACRO end_dbg_group
+	ENDM
 	MACRO runtime_assert
 	ENDM
 	MACRO unreachable
