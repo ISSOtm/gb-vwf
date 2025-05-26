@@ -1170,7 +1170,10 @@ PrintVWFChars::
 	ld a, [wNbTicksBetweenPrints]
 	and a
 	jr nz, :+
-	ld a, [wSourceStack.len] ; Well, unless there isn't going to be a "next time".
+	ld a, [wFlags] ; Well, unless the printing is interrupted...
+	bit TEXTB_WAITING, a
+	jr nz, :+
+	ld a, [wSourceStack.len] ; ...or there isn't going to be a "next time".
 	and a
 	ret nz
 :
